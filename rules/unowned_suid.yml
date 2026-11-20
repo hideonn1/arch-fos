@@ -1,0 +1,16 @@
+id: sigma_unowned_suid_added
+title: Binario SUID/SGID sin paquete propietario
+description: Detecta la aparición o modificación de un binario SUID/SGID no perteneciente a ningún paquete de pacman.
+severity: critical
+enabled: true
+mitre_attack:
+  tactic: Privilege Escalation
+  technique_id: T1548.001
+  technique_name: Setuid and Setgid
+logsource:
+  category: persistence
+detection:
+  selection:
+    event_type: persistence_change
+    payload.category: suid_sgid
+    payload.package_name: unowned

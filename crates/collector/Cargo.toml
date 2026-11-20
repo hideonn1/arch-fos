@@ -1,0 +1,29 @@
+[package]
+name = "arch-fos-collector"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+alpm.workspace = true
+arch-fos-analyzer = { path = "../analyzer" }
+arch-fos-common = { path = "../common" }
+aya.workspace = true
+clap.workspace = true
+flate2.workspace = true
+hex.workspace = true
+libc.workspace = true
+netlink-packet-core.workspace = true
+netlink-packet-sock-diag.workspace = true
+netlink-sys.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+sqlx.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+yaml_serde.workspace = true
+zbus.workspace = true

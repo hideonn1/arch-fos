@@ -1,0 +1,15 @@
+id: sigma_wildcard_listener_exposed
+title: Nuevo puerto expuesto en todas las interfaces
+description: Detecta cuando un proceso abre un socket en 0.0.0.0 o :: accesible desde la red.
+severity: high
+enabled: true
+mitre_attack:
+  tactic: Command and Control
+  technique_id: T1571
+  technique_name: Non-Standard Port
+logsource:
+  category: network
+detection:
+  selection:
+    event_type: new_listener
+    payload.wildcard: true

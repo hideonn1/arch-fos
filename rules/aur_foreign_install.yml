@@ -1,0 +1,15 @@
+id: sigma_aur_foreign_package_installed
+title: Paquete foráneo/AUR recién instalado
+description: Registra como hallazgo informativo/medio la instalación de paquetes fuera de repos oficiales para auditoría.
+severity: low
+enabled: true
+mitre_attack:
+  tactic: Execution
+  technique_id: T1059
+  technique_name: Command and Scripting Interpreter
+logsource:
+  category: packages
+detection:
+  selection:
+    event_type: package_installed
+    payload.is_foreign: true

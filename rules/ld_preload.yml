@@ -1,0 +1,15 @@
+id: sigma_ld_preload_persistence
+title: Modificación de LD_PRELOAD del sistema
+description: Detecta creación o alteración de /etc/ld.so.preload o archivos ld.so.conf.d.
+severity: critical
+enabled: true
+mitre_attack:
+  tactic: Persistence
+  technique_id: T1574.006
+  technique_name: Dynamic Linker Hijacking
+logsource:
+  category: persistence
+detection:
+  selection:
+    event_type: persistence_change
+    payload.category: ld_preload
