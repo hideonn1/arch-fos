@@ -1,0 +1,18 @@
+[package]
+name = "arch-fos-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "arch-fos"
+path = "src/main.rs"
+
+[dependencies]
+arch-fos-analyzer = { path = "../analyzer" }
+arch-fos-common = { path = "../common" }
+clap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sqlx.workspace = true
+tokio.workspace = true
