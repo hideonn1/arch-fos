@@ -1,0 +1,7 @@
+@import "tailwindcss";
+@import "uplot/dist/uPlot.min.css";
+
+.uplot .u-legend {
+  color: #cbd5e1;
+  font-size: 12px;
+}

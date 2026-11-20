@@ -1,0 +1,2954 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Arch Forward Observations System API",
+    "description": "Local unprivileged read-only REST API for Arch Linux security telemetry, package inventory, and system findings.",
+    "license": {
+      "name": "MIT"
+    },
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/api/v1/auth/login": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Exchanges the local API token for an `HttpOnly`, `SameSite=Strict` session cookie.",
+        "operationId": "auth_login",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Authenticated session created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthStatus"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid local token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Cross-origin login rejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/logout": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Invalidates the current session and clears the session cookie (requires CSRF header).",
+        "operationId": "auth_logout",
+        "responses": {
+          "200": {
+            "description": "Logged out",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthStatus"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "CSRF validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/me": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Returns whether the current browser session is authenticated and provides the active CSRF token.",
+        "operationId": "auth_me",
+        "responses": {
+          "200": {
+            "description": "Session state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthStatus"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/dns": {
+      "get": {
+        "tags": [
+          "network"
+        ],
+        "summary": "Lists captured DNS queries attributed to processes with cursor pagination (US-17).",
+        "operationId": "list_dns_queries",
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "path",
+            "description": "Opaque pagination cursor returned by the previous page.",
+            "required": true,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "limit",
+            "in": "path",
+            "description": "Maximum number of items to return (default 50, max 200).",
+            "required": true,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "severity",
+            "in": "path",
+            "description": "Filter by severity (`info`, `low`, `medium`, `high`, `critical`).",
+            "required": true,
+            "schema": {
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/Severity"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          {
+            "name": "status",
+            "in": "path",
+            "description": "Filter by finding status (`new`, `acknowledged`, `ignored`, `resolved`).",
+            "required": true,
+            "schema": {
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/FindingStatus"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          {
+            "name": "from",
+            "in": "path",
+            "description": "Start timestamp inclusive (Unix milliseconds).",
+            "required": true,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "to",
+            "in": "path",
+            "description": "End timestamp inclusive (Unix milliseconds).",
+            "required": true,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "entity_type",
+            "in": "path",
+            "description": "Filter by entity type (e.g. `package`, `service`, `process`).",
+            "required": true,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "entity_id",
+            "in": "path",
+            "description": "Filter by entity identifier.",
+            "required": true,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Paginated DNS queries",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DnsQueriesPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid query parameter",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/events": {
+      "get": {
+        "tags": [
+          "events"
+        ],
+        "summary": "Lists raw collector events with cursor pagination and severity/time/entity filters.",
+        "operationId": "list_events",
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "path",
+            "description": "Opaque pagination cursor returned by the previous page.",
+            "required": true,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "limit",
+            "in": "path",
+            "description": "Maximum number of items to return (default 50, max 200).",
+            "required": true,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "severity",
+            "in": "path",
+            "description": "Filter by severity (`info`, `low`, `medium`, `high`, `critical`).",
+            "required": true,
+            "schema": {
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/Severity"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          {
+            "name": "status",
+            "in": "path",
+            "description": "Filter by finding status (`new`, `acknowledged`, `ignored`, `resolved`).",
+            "required": true,
+            "schema": {
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/FindingStatus"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          {
+            "name": "from",
+            "in": "path",
+            "description": "Start timestamp inclusive (Unix milliseconds).",
+            "required": true,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "to",
+            "in": "path",
+            "description": "End timestamp inclusive (Unix milliseconds).",
+            "required": true,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "entity_type",
+            "in": "path",
+            "description": "Filter by entity type (e.g. `package`, `service`, `process`).",
+            "required": true,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "entity_id",
+            "in": "path",
+            "description": "Filter by entity identifier.",
+            "required": true,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Paginated events",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventsPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid query parameter",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/findings": {
+      "get": {
+        "tags": [
+          "findings"
+        ],
+        "summary": "Lists security findings with cursor pagination and severity/status/time/entity filters.",
+        "operationId": "list_findings",
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "path",
+            "description": "Opaque pagination cursor returned by the previous page.",
+            "required": true,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "limit",
+            "in": "path",
+            "description": "Maximum number of items to return (default 50, max 200).",
+            "required": true,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "severity",
+            "in": "path",
+            "description": "Filter by severity (`info`, `low`, `medium`, `high`, `critical`).",
+            "required": true,
+            "schema": {
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/Severity"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          {
+            "name": "status",
+            "in": "path",
+            "description": "Filter by finding status (`new`, `acknowledged`, `ignored`, `resolved`).",
+            "required": true,
+            "schema": {
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/FindingStatus"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          {
+            "name": "from",
+            "in": "path",
+            "description": "Start timestamp inclusive (Unix milliseconds).",
+            "required": true,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "to",
+            "in": "path",
+            "description": "End timestamp inclusive (Unix milliseconds).",
+            "required": true,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "entity_type",
+            "in": "path",
+            "description": "Filter by entity type (e.g. `package`, `service`, `process`).",
+            "required": true,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "entity_id",
+            "in": "path",
+            "description": "Filter by entity identifier.",
+            "required": true,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Paginated findings",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FindingsPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid query parameter",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/findings/{id}": {
+      "patch": {
+        "tags": [
+          "findings"
+        ],
+        "summary": "Updates a finding status (`new`, `acknowledged`, `ignored`, `resolved`) with audit logging (US-23).",
+        "operationId": "update_finding_status",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Finding ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateFindingRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Finding status updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MutationAck"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "CSRF validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Finding not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/findings/{id}/audit": {
+      "get": {
+        "tags": [
+          "findings"
+        ],
+        "summary": "Returns the audit trail for a specific finding (US-23).",
+        "operationId": "list_finding_audit",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Finding ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Finding audit entries",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FindingAuditResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/flows": {
+      "get": {
+        "tags": [
+          "flows"
+        ],
+        "summary": "Lists minute-aggregated network flows with cursor pagination and time/entity filters.",
+        "operationId": "list_flows",
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "path",
+            "description": "Opaque pagination cursor returned by the previous page.",
+            "required": true,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "limit",
+            "in": "path",
+            "description": "Maximum number of items to return (default 50, max 200).",
+            "required": true,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "severity",
+            "in": "path",
+            "description": "Filter by severity (`info`, `low`, `medium`, `high`, `critical`).",
+            "required": true,
+            "schema": {
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/Severity"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          {
+            "name": "status",
+            "in": "path",
+            "description": "Filter by finding status (`new`, `acknowledged`, `ignored`, `resolved`).",
+            "required": true,
+            "schema": {
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/FindingStatus"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          {
+            "name": "from",
+            "in": "path",
+            "description": "Start timestamp inclusive (Unix milliseconds).",
+            "required": true,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "to",
+            "in": "path",
+            "description": "End timestamp inclusive (Unix milliseconds).",
+            "required": true,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "entity_type",
+            "in": "path",
+            "description": "Filter by entity type (e.g. `package`, `service`, `process`).",
+            "required": true,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "entity_id",
+            "in": "path",
+            "description": "Filter by entity identifier.",
+            "required": true,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Paginated flows",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FlowsPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid query parameter",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/health": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "summary": "Returns API liveness status and verifies read-only SQLite access.",
+        "operationId": "health_check",
+        "responses": {
+          "200": {
+            "description": "Service is healthy",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/health/collector": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "summary": "Returns the latest self-health telemetry recorded by the collector daemon (US-30).",
+        "operationId": "collector_health",
+        "responses": {
+          "200": {
+            "description": "Collector self-health metrics",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CollectorHealth"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/listeners": {
+      "get": {
+        "tags": [
+          "listeners"
+        ],
+        "summary": "Lists listening network sockets attributed to processes and owning packages (US-07).",
+        "operationId": "list_listeners",
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "path",
+            "description": "Opaque pagination cursor returned by the previous page.",
+            "required": true,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "limit",
+            "in": "path",
+            "description": "Maximum number of items to return (default 50, max 200).",
+            "required": true,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "severity",
+            "in": "path",
+            "description": "Filter by severity (`info`, `low`, `medium`, `high`, `critical`).",
+            "required": true,
+            "schema": {
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/Severity"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          {
+            "name": "status",
+            "in": "path",
+            "description": "Filter by finding status (`new`, `acknowledged`, `ignored`, `resolved`).",
+            "required": true,
+            "schema": {
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/FindingStatus"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          {
+            "name": "from",
+            "in": "path",
+            "description": "Start timestamp inclusive (Unix milliseconds).",
+            "required": true,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "to",
+            "in": "path",
+            "description": "End timestamp inclusive (Unix milliseconds).",
+            "required": true,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "entity_type",
+            "in": "path",
+            "description": "Filter by entity type (e.g. `package`, `service`, `process`).",
+            "required": true,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "entity_id",
+            "in": "path",
+            "description": "Filter by entity identifier.",
+            "required": true,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Paginated listeners",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListenersPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid query parameter",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/packages": {
+      "get": {
+        "tags": [
+          "packages"
+        ],
+        "summary": "Lists installed packages from the ALPM inventory with cursor pagination and filters.",
+        "operationId": "list_packages",
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "path",
+            "description": "Opaque pagination cursor (package name).",
+            "required": true,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "limit",
+            "in": "path",
+            "description": "Maximum number of items to return (default 50, max 200).",
+            "required": true,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "q",
+            "in": "path",
+            "description": "Case-insensitive substring filter on package name or description.",
+            "required": true,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "foreign_only",
+            "in": "path",
+            "description": "Filter only foreign (AUR / local) packages when true.",
+            "required": true,
+            "schema": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "repo",
+            "in": "path",
+            "description": "Filter by exact repository name (e.g. `core`, `extra`).",
+            "required": true,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Paginated packages",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PackagesPage"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/rules": {
+      "get": {
+        "tags": [
+          "rules"
+        ],
+        "summary": "Lists active YAML Sigma detection rules and their MITRE ATT&CK mappings (US-29).",
+        "operationId": "list_rules",
+        "responses": {
+          "200": {
+            "description": "Configured detection rules",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RulesPage"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/services": {
+      "get": {
+        "tags": [
+          "services"
+        ],
+        "summary": "Lists systemd services and cgroup resource metrics with cursor pagination.",
+        "operationId": "list_services",
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "path",
+            "description": "Opaque pagination cursor (unit name).",
+            "required": true,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "limit",
+            "in": "path",
+            "description": "Maximum number of items to return (default 50, max 200).",
+            "required": true,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "active_state",
+            "in": "path",
+            "description": "Filter by active state (e.g. `active`, `inactive`, `failed`).",
+            "required": true,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Paginated services",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServicesPage"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/stream": {
+      "get": {
+        "tags": [
+          "findings"
+        ],
+        "summary": "Real-time Server-Sent Events (SSE) stream emitting newly recorded findings (US-21).\nSupports automatic reconnection via `Last-Event-ID` or `?after_id=...`.",
+        "operationId": "stream_findings",
+        "responses": {
+          "200": {
+            "description": "SSE stream of new findings",
+            "content": {
+              "text/event-stream": {}
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        }
+      }
+    },
+    "/api/v1/summary": {
+      "get": {
+        "tags": [
+          "dashboard"
+        ],
+        "summary": "Returns aggregated system security and inventory metrics for the overview dashboard.",
+        "operationId": "get_summary",
+        "responses": {
+          "200": {
+            "description": "Overview dashboard summary",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OverviewSummary"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/suppressions": {
+      "get": {
+        "tags": [
+          "findings"
+        ],
+        "summary": "Lists configured finding suppressions (US-23).",
+        "operationId": "list_suppressions",
+        "responses": {
+          "200": {
+            "description": "Suppression rules",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuppressionsPage"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "findings"
+        ],
+        "summary": "Creates or updates a suppression rule for a `(rule_id, entity_type, entity_id)` tuple (US-23).",
+        "operationId": "create_suppression",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateSuppressionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Suppression rule created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MutationAck"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "CSRF validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/suppressions/{id}": {
+      "delete": {
+        "tags": [
+          "findings"
+        ],
+        "summary": "Removes an existing suppression rule (US-23).",
+        "operationId": "delete_suppression",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Suppression ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Suppression removed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MutationAck"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "CSRF validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Suppression not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/threat-intel/status": {
+      "get": {
+        "tags": [
+          "network"
+        ],
+        "summary": "Returns URLhaus and Feodo Tracker indicator counts and last sync timestamps (US-18).",
+        "operationId": "threat_intel_status",
+        "responses": {
+          "200": {
+            "description": "Threat intelligence feed sync status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ThreatIntelStatusResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/timeline": {
+      "get": {
+        "tags": [
+          "timeline"
+        ],
+        "summary": "Returns a unified chronological timeline correlating events, findings, listeners, flows, and DNS\nfor a single package, service, process, or persistence entity (US-24).",
+        "operationId": "get_entity_timeline",
+        "parameters": [
+          {
+            "name": "entity_type",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "entity_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Correlated entity timeline",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EntityTimelineResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid query parameter",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/timeline/entities": {
+      "get": {
+        "tags": [
+          "timeline"
+        ],
+        "summary": "Lists known entities from findings, events, and processes for timeline selection (US-24).",
+        "operationId": "list_timeline_entities",
+        "responses": {
+          "200": {
+            "description": "Discoverable entities",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TimelineEntitiesResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "ApiErrorBody": {
+        "type": "object",
+        "description": "Standard API error body.",
+        "required": [
+          "error",
+          "message"
+        ],
+        "properties": {
+          "error": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "AuthStatus": {
+        "type": "object",
+        "description": "Current authentication session status and CSRF token.",
+        "required": [
+          "authenticated"
+        ],
+        "properties": {
+          "authenticated": {
+            "type": "boolean"
+          },
+          "csrf_token": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "CollectorHealth": {
+        "type": "object",
+        "description": "Self-health metrics reported by the collector daemon (US-30).",
+        "required": [
+          "last_heartbeat_at",
+          "cpu_time_ms",
+          "rss_bytes",
+          "db_size_bytes",
+          "last_ingest_latency_ms",
+          "status"
+        ],
+        "properties": {
+          "cpu_time_ms": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "db_size_bytes": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "last_heartbeat_at": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "last_ingest_latency_ms": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "rss_bytes": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "status": {
+            "type": "string"
+          }
+        }
+      },
+      "CreateSuppressionRequest": {
+        "type": "object",
+        "description": "Request body to create a suppression rule (US-23).",
+        "required": [
+          "rule_id",
+          "entity_type",
+          "entity_id"
+        ],
+        "properties": {
+          "entity_id": {
+            "type": "string"
+          },
+          "entity_type": {
+            "type": "string"
+          },
+          "expires_at": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Optional expiration timestamp in Unix milliseconds."
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "rule_id": {
+            "type": "string"
+          }
+        }
+      },
+      "DnsQueriesPage": {
+        "type": "object",
+        "required": [
+          "items",
+          "has_more"
+        ],
+        "properties": {
+          "has_more": {
+            "type": "boolean"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DnsQuery"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "DnsQuery": {
+        "type": "object",
+        "description": "Captured DNS query attributed to a process and package (US-17).",
+        "required": [
+          "id",
+          "ts",
+          "comm",
+          "qname",
+          "qtype",
+          "rcode",
+          "entropy"
+        ],
+        "properties": {
+          "comm": {
+            "type": "string"
+          },
+          "entropy": {
+            "type": "number",
+            "format": "double"
+          },
+          "exe_path": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "package_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "pid": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "qname": {
+            "type": "string"
+          },
+          "qtype": {
+            "type": "string"
+          },
+          "rcode": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "ts": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "uid": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          }
+        }
+      },
+      "EntityTimelineResponse": {
+        "type": "object",
+        "description": "Chronological correlated timeline for a package, service, process, or other entity (US-24).",
+        "required": [
+          "entity_type",
+          "entity_id",
+          "entries"
+        ],
+        "properties": {
+          "entity_id": {
+            "type": "string"
+          },
+          "entity_type": {
+            "type": "string"
+          },
+          "entries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TimelineEntry"
+            }
+          }
+        }
+      },
+      "Event": {
+        "type": "object",
+        "description": "Raw event emitted by the collector.",
+        "required": [
+          "id",
+          "ts",
+          "type",
+          "severity",
+          "source",
+          "entity_type",
+          "entity_id",
+          "payload"
+        ],
+        "properties": {
+          "entity_id": {
+            "type": "string"
+          },
+          "entity_type": {
+            "type": "string"
+          },
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "payload": {},
+          "severity": {
+            "$ref": "#/components/schemas/Severity"
+          },
+          "source": {
+            "type": "string"
+          },
+          "ts": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Unix timestamp in milliseconds."
+          },
+          "type": {
+            "type": "string"
+          }
+        }
+      },
+      "EventsPage": {
+        "type": "object",
+        "required": [
+          "items",
+          "has_more"
+        ],
+        "properties": {
+          "has_more": {
+            "type": "boolean"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Event"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "Finding": {
+        "type": "object",
+        "description": "Security or system finding produced by deterministic rules.",
+        "required": [
+          "id",
+          "ts",
+          "updated_at",
+          "rule_id",
+          "severity",
+          "status",
+          "entity_type",
+          "entity_id",
+          "title",
+          "summary",
+          "evidence"
+        ],
+        "properties": {
+          "entity_id": {
+            "type": "string"
+          },
+          "entity_type": {
+            "type": "string"
+          },
+          "evidence": {},
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "rule_id": {
+            "type": "string"
+          },
+          "severity": {
+            "$ref": "#/components/schemas/Severity"
+          },
+          "status": {
+            "$ref": "#/components/schemas/FindingStatus"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "ts": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Creation timestamp in Unix milliseconds."
+          },
+          "updated_at": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Last update timestamp in Unix milliseconds."
+          }
+        }
+      },
+      "FindingAuditEntry": {
+        "type": "object",
+        "description": "Audit log record tracking finding state transitions and suppression actions.",
+        "required": [
+          "id",
+          "finding_id",
+          "actor",
+          "action",
+          "note",
+          "ts"
+        ],
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "actor": {
+            "type": "string"
+          },
+          "finding_id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "new_status": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "note": {
+            "type": "string"
+          },
+          "old_status": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ts": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "FindingAuditResponse": {
+        "type": "object",
+        "description": "Response containing audit history for a finding.",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FindingAuditEntry"
+            }
+          }
+        }
+      },
+      "FindingStatus": {
+        "type": "string",
+        "description": "Lifecycle status of a security or operational finding.",
+        "enum": [
+          "new",
+          "acknowledged",
+          "ignored",
+          "resolved"
+        ]
+      },
+      "FindingsPage": {
+        "type": "object",
+        "required": [
+          "items",
+          "has_more"
+        ],
+        "properties": {
+          "has_more": {
+            "type": "boolean"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Finding"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "Flow1m": {
+        "type": "object",
+        "description": "Network flow aggregated per minute and process.",
+        "required": [
+          "id",
+          "bucket_ts",
+          "ts",
+          "comm",
+          "src_ip",
+          "dst_ip",
+          "dst_port",
+          "protocol",
+          "bytes_tx",
+          "bytes_rx",
+          "packets",
+          "entity_type",
+          "entity_id"
+        ],
+        "properties": {
+          "bucket_ts": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Minute bucket start timestamp in Unix milliseconds."
+          },
+          "bytes_rx": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "bytes_tx": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "comm": {
+            "type": "string"
+          },
+          "dst_ip": {
+            "type": "string"
+          },
+          "dst_port": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "entity_id": {
+            "type": "string"
+          },
+          "entity_type": {
+            "type": "string"
+          },
+          "exe_path": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "packets": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "pid": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "protocol": {
+            "type": "string"
+          },
+          "src_ip": {
+            "type": "string"
+          },
+          "ts": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "uid": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          }
+        }
+      },
+      "FlowsPage": {
+        "type": "object",
+        "required": [
+          "items",
+          "has_more"
+        ],
+        "properties": {
+          "has_more": {
+            "type": "boolean"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Flow1m"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "HealthResponse": {
+        "type": "object",
+        "description": "Health check response.",
+        "required": [
+          "status",
+          "version",
+          "db_read_only"
+        ],
+        "properties": {
+          "db_read_only": {
+            "type": "boolean"
+          },
+          "status": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        }
+      },
+      "InstallReason": {
+        "type": "string",
+        "description": "Reason a package is installed in the local ALPM database.",
+        "enum": [
+          "explicit",
+          "dependency"
+        ]
+      },
+      "Listener": {
+        "type": "object",
+        "description": "Listening socket attributed to a process and owning package.",
+        "required": [
+          "id",
+          "ts",
+          "protocol",
+          "local_addr",
+          "local_port",
+          "entity_type",
+          "entity_id"
+        ],
+        "properties": {
+          "entity_id": {
+            "type": "string"
+          },
+          "entity_type": {
+            "type": "string"
+          },
+          "exe_path": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "local_addr": {
+            "type": "string"
+          },
+          "local_port": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "package_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "pid": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "process_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "protocol": {
+            "type": "string"
+          },
+          "ts": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "ListenersPage": {
+        "type": "object",
+        "required": [
+          "items",
+          "has_more"
+        ],
+        "properties": {
+          "has_more": {
+            "type": "boolean"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Listener"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "LoginRequest": {
+        "type": "object",
+        "description": "Login request using the local API token.",
+        "required": [
+          "token"
+        ],
+        "properties": {
+          "token": {
+            "type": "string"
+          }
+        }
+      },
+      "MutationAck": {
+        "type": "object",
+        "description": "Generic confirmation response for write commands forwarded to the collector.",
+        "required": [
+          "ok"
+        ],
+        "properties": {
+          "id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "ok": {
+            "type": "boolean"
+          }
+        }
+      },
+      "OverviewSummary": {
+        "type": "object",
+        "description": "Overview summary payload returned by `GET /api/v1/summary`.",
+        "required": [
+          "total_events",
+          "total_findings",
+          "findings_by_severity",
+          "findings_by_status",
+          "packages",
+          "top_processes",
+          "top_services",
+          "time_series"
+        ],
+        "properties": {
+          "findings_by_severity": {
+            "$ref": "#/components/schemas/SeverityCounts"
+          },
+          "findings_by_status": {
+            "$ref": "#/components/schemas/StatusCounts"
+          },
+          "packages": {
+            "$ref": "#/components/schemas/PackageSummary"
+          },
+          "time_series": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TimeSeriesPoint"
+            }
+          },
+          "top_processes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TopProcessTraffic"
+            }
+          },
+          "top_services": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TopServiceUsage"
+            }
+          },
+          "total_events": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "total_findings": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "Package": {
+        "type": "object",
+        "description": "Installed package metadata captured from ALPM.",
+        "required": [
+          "name",
+          "version",
+          "is_foreign",
+          "reason",
+          "size_bytes",
+          "files",
+          "first_seen_at",
+          "last_seen_at"
+        ],
+        "properties": {
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "first_seen_at": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "install_date": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Install date in Unix milliseconds (if available from ALPM)."
+          },
+          "is_foreign": {
+            "type": "boolean"
+          },
+          "last_seen_at": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "name": {
+            "type": "string"
+          },
+          "reason": {
+            "$ref": "#/components/schemas/InstallReason"
+          },
+          "repo": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "size_bytes": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "version": {
+            "type": "string"
+          }
+        }
+      },
+      "PackageSummary": {
+        "type": "object",
+        "description": "Package inventory summary metrics.",
+        "required": [
+          "total",
+          "official",
+          "foreign",
+          "explicit",
+          "dependency",
+          "pending_cve_packages"
+        ],
+        "properties": {
+          "dependency": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "explicit": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "foreign": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "last_sync_ts": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "official": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "pending_cve_packages": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "total": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "PackagesPage": {
+        "type": "object",
+        "required": [
+          "items",
+          "has_more"
+        ],
+        "properties": {
+          "has_more": {
+            "type": "boolean"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Package"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "Rule": {
+        "type": "object",
+        "description": "Rule configuration stored in the database.",
+        "required": [
+          "id",
+          "name",
+          "description",
+          "severity",
+          "enabled",
+          "config",
+          "updated_at"
+        ],
+        "properties": {
+          "config": {},
+          "description": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "id": {
+            "type": "string"
+          },
+          "mitre_attack": {},
+          "name": {
+            "type": "string"
+          },
+          "severity": {
+            "$ref": "#/components/schemas/Severity"
+          },
+          "source_file": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "updated_at": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "RulesPage": {
+        "type": "object",
+        "required": [
+          "items",
+          "has_more"
+        ],
+        "properties": {
+          "has_more": {
+            "type": "boolean"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Rule"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "Service": {
+        "type": "object",
+        "description": "Systemd unit and cgroup consumption snapshot.",
+        "required": [
+          "unit_name",
+          "active_state",
+          "sub_state",
+          "unit_file_state",
+          "cpu_usage_ns",
+          "memory_bytes",
+          "io_read_bytes",
+          "io_write_bytes",
+          "last_seen_at"
+        ],
+        "properties": {
+          "active_state": {
+            "type": "string"
+          },
+          "cpu_usage_ns": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "io_read_bytes": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "io_write_bytes": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "last_seen_at": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "memory_bytes": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "sub_state": {
+            "type": "string"
+          },
+          "unit_file_state": {
+            "type": "string"
+          },
+          "unit_name": {
+            "type": "string"
+          }
+        }
+      },
+      "ServicesPage": {
+        "type": "object",
+        "required": [
+          "items",
+          "has_more"
+        ],
+        "properties": {
+          "has_more": {
+            "type": "boolean"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Service"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "Severity": {
+        "type": "string",
+        "description": "Severity level shared across events, findings, and rules.",
+        "enum": [
+          "info",
+          "low",
+          "medium",
+          "high",
+          "critical"
+        ]
+      },
+      "SeverityCounts": {
+        "type": "object",
+        "description": "Finding count grouped by severity.",
+        "required": [
+          "info",
+          "low",
+          "medium",
+          "high",
+          "critical"
+        ],
+        "properties": {
+          "critical": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "high": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "info": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "low": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "medium": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "StatusCounts": {
+        "type": "object",
+        "description": "Finding count grouped by status.",
+        "required": [
+          "new",
+          "acknowledged",
+          "ignored",
+          "resolved"
+        ],
+        "properties": {
+          "acknowledged": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "ignored": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "new": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "resolved": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "Suppression": {
+        "type": "object",
+        "description": "Suppression rule excluding a `(rule_id, entity_type, entity_id)` tuple until optional expiration.",
+        "required": [
+          "id",
+          "rule_id",
+          "entity_type",
+          "entity_id",
+          "reason",
+          "created_by",
+          "created_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "created_by": {
+            "type": "string"
+          },
+          "entity_id": {
+            "type": "string"
+          },
+          "entity_type": {
+            "type": "string"
+          },
+          "expires_at": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "rule_id": {
+            "type": "string"
+          }
+        }
+      },
+      "SuppressionsPage": {
+        "type": "object",
+        "required": [
+          "items",
+          "has_more"
+        ],
+        "properties": {
+          "has_more": {
+            "type": "boolean"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Suppression"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "ThreatFeedStatus": {
+        "type": "object",
+        "description": "Sync status for an external threat intelligence feed (US-18).",
+        "required": [
+          "feed_name",
+          "indicator_count"
+        ],
+        "properties": {
+          "feed_name": {
+            "type": "string"
+          },
+          "indicator_count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "last_synced_at": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          }
+        }
+      },
+      "ThreatIntelStatusResponse": {
+        "type": "object",
+        "description": "Summary of configured threat intelligence feeds and last sync timestamps (US-18).",
+        "required": [
+          "feeds",
+          "total_indicators"
+        ],
+        "properties": {
+          "feeds": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ThreatFeedStatus"
+            }
+          },
+          "total_indicators": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "TimeSeriesPoint": {
+        "type": "object",
+        "description": "Time-series bucket for dashboard charts (`uPlot`).",
+        "required": [
+          "ts_sec",
+          "events_count",
+          "findings_count",
+          "bytes_total"
+        ],
+        "properties": {
+          "bytes_total": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "events_count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "findings_count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "ts_sec": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Bucket timestamp in Unix seconds (directly usable by uPlot)."
+          }
+        }
+      },
+      "TimelineEntitiesResponse": {
+        "type": "object",
+        "description": "List of entities with recent telemetry for quick timeline selection (US-24).",
+        "required": [
+          "entities"
+        ],
+        "properties": {
+          "entities": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TimelineEntityRef"
+            }
+          }
+        }
+      },
+      "TimelineEntityRef": {
+        "type": "object",
+        "description": "Reference to a discoverable entity for timeline inspection (US-24).",
+        "required": [
+          "entity_type",
+          "entity_id"
+        ],
+        "properties": {
+          "entity_id": {
+            "type": "string"
+          },
+          "entity_type": {
+            "type": "string"
+          }
+        }
+      },
+      "TimelineEntry": {
+        "type": "object",
+        "description": "Unified chronological entry in an entity timeline (US-24).",
+        "required": [
+          "ts",
+          "kind",
+          "severity",
+          "source",
+          "title",
+          "summary",
+          "details"
+        ],
+        "properties": {
+          "details": {},
+          "kind": {
+            "type": "string",
+            "description": "`event` | `finding` | `listener` | `flow` | `dns`"
+          },
+          "severity": {
+            "$ref": "#/components/schemas/Severity"
+          },
+          "source": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "ts": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "TopProcessTraffic": {
+        "type": "object",
+        "description": "Top network process entry in the summary dashboard.",
+        "required": [
+          "comm",
+          "total_tx_bytes",
+          "total_rx_bytes",
+          "total_bytes"
+        ],
+        "properties": {
+          "comm": {
+            "type": "string"
+          },
+          "exe_path": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "total_bytes": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "total_rx_bytes": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "total_tx_bytes": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "TopServiceUsage": {
+        "type": "object",
+        "description": "Top resource-consuming service entry in the summary dashboard.",
+        "required": [
+          "unit_name",
+          "active_state",
+          "cpu_usage_ns",
+          "memory_bytes"
+        ],
+        "properties": {
+          "active_state": {
+            "type": "string"
+          },
+          "cpu_usage_ns": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "memory_bytes": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "unit_name": {
+            "type": "string"
+          }
+        }
+      },
+      "UpdateFindingRequest": {
+        "type": "object",
+        "description": "Request body to update a finding's status (US-23).",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "$ref": "#/components/schemas/FindingStatus"
+          }
+        }
+      }
+    }
+  }
+}
