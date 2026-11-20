@@ -1,1 +1,10 @@
 .env
+.backlog.md
+api.token
+/target/
+/web/node_modules/
+/web/dist/
+*.tsbuildinfo
+*.db
+*.db-wal
+*.db-shm
