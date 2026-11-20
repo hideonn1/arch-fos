@@ -1,0 +1,51 @@
+[Unit]
+Description=Arch Forward Observations System - Collector
+Documentation=https://github.com/hideon/arch-fos
+After=local-fs.target
+Wants=local-fs.target
+
+[Service]
+Type=simple
+User=arch-fos-collector
+Group=arch-fos-collector
+RuntimeDirectory=arch-fos
+RuntimeDirectoryMode=0750
+ExecStart=/usr/bin/arch-fos-collector --db-path /var/lib/arch-fos/arch-fos.db --control-socket /run/arch-fos/collector.sock --rules-dir /etc/arch-fos/rules
+Restart=on-failure
+RestartSec=5s
+
+# US-03: Minimal privileges (collector is sole DB writer & future eBPF owner)
+AmbientCapabilities=CAP_BPF CAP_NET_RAW CAP_PERFMON
+CapabilityBoundingSet=CAP_BPF CAP_NET_RAW CAP_PERFMON
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/arch-fos
+ReadOnlyPaths=/var/lib/pacman /etc/arch-fos/rules
+
+# Hardening for systemd-analyze security <= 3.0
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+PrivateUsers=no
+ProtectHostname=yes
+ProtectClock=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectProc=invisible
+ProcSubset=pid
+RestrictAddressFamilies=AF_UNIX AF_NETLINK
+RestrictNamespaces=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+RemoveIPC=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources @obsolete @debug @mount @reboot @swap @raw-io @cpu-emulation
+UMask=0027
+
+[Install]
+WantedBy=multi-user.target

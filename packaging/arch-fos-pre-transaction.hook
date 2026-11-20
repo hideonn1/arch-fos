@@ -1,0 +1,12 @@
+[Trigger]
+Type = Package
+Operation = Install
+Operation = Upgrade
+Target = *
+
+[Action]
+Description = Analizando paquetes con Arch Forward Observations System...
+When = PreTransaction
+Exec = /usr/bin/arch-fos hook --mode warn --threshold high
+AbortOnFail
+NeedsTargets

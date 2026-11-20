@@ -1,0 +1,45 @@
+# Maintainer: hideon
+pkgname=arch-fos
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="Arch Forward Observations System - local security telemetry, pacman/AUR audit and dashboard"
+arch=('x86_64')
+url="https://github.com/hideon/arch-fos"
+license=('MIT')
+depends=('pacman' 'sqlite' 'systemd')
+makedepends=('cargo' 'clang' 'nodejs' 'npm')
+backup=('etc/arch-fos/rules/unowned_suid.yml'
+        'etc/arch-fos/rules/ld_preload.yml'
+        'etc/arch-fos/rules/aur_foreign_install.yml'
+        'etc/arch-fos/rules/wildcard_listener.yml')
+source=()
+sha256sums=()
+
+build() {
+    cd "$startdir/.."
+    npm --prefix web ci --prefer-offline
+    npm --prefix web run build
+    cargo build --release --locked --workspace
+}
+
+check() {
+    cd "$startdir/.."
+    cargo test --release --locked --workspace
+}
+
+package() {
+    cd "$startdir/.."
+    install -Dm755 target/release/arch-fos-collector "$pkgdir/usr/bin/arch-fos-collector"
+    install -Dm755 target/release/arch-fos-api "$pkgdir/usr/bin/arch-fos-api"
+    install -Dm755 target/release/arch-fos "$pkgdir/usr/bin/arch-fos"
+
+    install -Dm644 packaging/arch-fos-collector.service "$pkgdir/usr/lib/systemd/system/arch-fos-collector.service"
+    install -Dm644 packaging/arch-fos-api.service "$pkgdir/usr/lib/systemd/system/arch-fos-api.service"
+    install -Dm644 packaging/arch-fos.sysusers "$pkgdir/usr/lib/sysusers.d/arch-fos.conf"
+    install -Dm644 packaging/arch-fos.tmpfiles "$pkgdir/usr/lib/tmpfiles.d/arch-fos.conf"
+    install -Dm644 packaging/arch-fos-pre-transaction.hook "$pkgdir/usr/share/libalpm/hooks/arch-fos-pre-transaction.hook"
+
+    install -dm755 "$pkgdir/etc/arch-fos/rules"
+    install -Dm644 rules/*.yml "$pkgdir/etc/arch-fos/rules/"
+    install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}
