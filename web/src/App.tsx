@@ -19,9 +19,18 @@ import { ServicesListenersPanel } from "./components/ServicesListenersPanel";
 import { NetworkPanel } from "./components/NetworkPanel";
 import { TimelinePanel } from "./components/TimelinePanel";
 import { RulesPanel } from "./components/RulesPanel";
+import { AiActionsPanel } from "./components/AiActionsPanel";
 import { BellRing, HeartPulse, LogOut, Radio, RefreshCw, Shield, X } from "lucide-react";
 
-type Tab = "overview" | "findings" | "timeline" | "network" | "packages" | "runtime" | "rules";
+type Tab =
+  | "overview"
+  | "findings"
+  | "ai"
+  | "timeline"
+  | "network"
+  | "packages"
+  | "runtime"
+  | "rules";
 type SseStatus = "connecting" | "live" | "reconnecting";
 
 export function App() {
@@ -138,7 +147,7 @@ export function App() {
                 Arch Forward Observations System
               </h1>
               <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-400">
-                <span>Hito 4 · Persistencia, Integridad, Timeline y Sigma</span>
+                <span>Hito 5 · IA local (Ollama), Arch Wiki RAG y Seguridad Arch</span>
                 <span
                   className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 ${
                     sseStatus === "live"
@@ -172,6 +181,7 @@ export function App() {
               [
                 ["overview", "Resumen"],
                 ["findings", "Hallazgos"],
+                ["ai", "IA y Acciones"],
                 ["timeline", "Línea de tiempo"],
                 ["network", "Red y Amenazas"],
                 ["packages", "Paquetes"],
@@ -256,6 +266,7 @@ export function App() {
         )}
 
         {tab === "findings" && <FindingsPanel />}
+        {tab === "ai" && <AiActionsPanel />}
         {tab === "timeline" && <TimelinePanel />}
         {tab === "network" && <NetworkPanel />}
         {tab === "packages" && <PackagesPanel />}

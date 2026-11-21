@@ -26,6 +26,11 @@ export type ThreatIntelStatusResponse = components["schemas"]["ThreatIntelStatus
 export type EntityTimelineResponse = components["schemas"]["EntityTimelineResponse"];
 export type TimelineEntitiesResponse = components["schemas"]["TimelineEntitiesResponse"];
 export type RulesPage = components["schemas"]["RulesPage"];
+export type LlmExplanation = components["schemas"]["LlmExplanation"];
+export type SuggestedAction = components["schemas"]["SuggestedAction"];
+export type SuggestedActionsPage = components["schemas"]["SuggestedActionsPage"];
+export type ActionStatus = components["schemas"]["ActionStatus"];
+export type WikiSearchResponse = components["schemas"]["WikiSearchResponse"];
 export type Severity = components["schemas"]["Severity"];
 export type FindingStatus = components["schemas"]["FindingStatus"];
 
@@ -225,4 +230,37 @@ export function fetchEntityTimeline(
 
 export function fetchRules(): Promise<RulesPage> {
   return apiFetch<RulesPage>("/api/v1/rules");
+}
+
+export function explainFinding(
+  id: number,
+  forceRefresh = false
+): Promise<LlmExplanation> {
+  return apiFetch<LlmExplanation>(`/api/v1/findings/${id}/explain`, {
+    method: "POST",
+    body: JSON.stringify({ force_refresh: forceRefresh }),
+  });
+}
+
+export function fetchSuggestedActions(
+  status?: ActionStatus | ""
+): Promise<SuggestedActionsPage> {
+  const qs = new URLSearchParams();
+  if (status) qs.set("status", status);
+  return apiFetch<SuggestedActionsPage>(`/api/v1/actions?${qs.toString()}`);
+}
+
+export function reviewSuggestedAction(
+  id: number,
+  status: ActionStatus
+): Promise<MutationAck> {
+  return apiFetch<MutationAck>(`/api/v1/actions/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify({ status }),
+  });
+}
+
+export function searchWiki(q: string, limit = 5): Promise<WikiSearchResponse> {
+  const qs = new URLSearchParams({ q, limit: String(limit) });
+  return apiFetch<WikiSearchResponse>(`/api/v1/wiki/search?${qs.toString()}`);
 }

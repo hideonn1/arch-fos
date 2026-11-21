@@ -3,15 +3,26 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   createSuppression,
   deleteSuppression,
+  explainFinding,
   fetchFindingAudit,
   fetchFindings,
   fetchSuppressions,
   updateFindingStatus,
   type Finding,
   type FindingStatus,
+  type LlmExplanation,
   type Severity,
 } from "../api/client";
-import { Ban, CheckCircle2, Eye, History, RotateCcw, Trash2 } from "lucide-react";
+import {
+  Ban,
+  BookOpen,
+  CheckCircle2,
+  Eye,
+  History,
+  RotateCcw,
+  Sparkles,
+  Trash2,
+} from "lucide-react";
 
 function SeverityBadge({ severity }: { severity: string }) {
   const styles: Record<string, string> = {
@@ -93,6 +104,8 @@ export function FindingsPanel() {
   const [statusFilter, setStatusFilter] = useState<FindingStatus | "">("");
   const [severityFilter, setSeverityFilter] = useState<Severity | "">("");
   const [expandedAuditId, setExpandedAuditId] = useState<number | null>(null);
+  const [explanations, setExplanations] = useState<Record<number, LlmExplanation>>({});
+  const [explainingId, setExplainingId] = useState<number | null>(null);
   const [suppressDays, setSuppressDays] = useState<number>(30);
   const [actionError, setActionError] = useState<string | null>(null);
 
@@ -152,6 +165,20 @@ export function FindingsPanel() {
     },
     onError: (err: Error) => setActionError(err.message),
   });
+
+  async function handleExplain(findingId: number) {
+    setActionError(null);
+    setExplainingId(findingId);
+    try {
+      const result = await explainFinding(findingId);
+      setExplanations((prev) => ({ ...prev, [findingId]: result }));
+      await queryClient.invalidateQueries({ queryKey: ["suggested-actions"] });
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Error consultando Ollama");
+    } finally {
+      setExplainingId(null);
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -297,6 +324,15 @@ export function FindingsPanel() {
                     </button>
                     <button
                       type="button"
+                      disabled={explainingId === f.id}
+                      onClick={() => handleExplain(f.id)}
+                      className="flex items-center gap-1 rounded border border-violet-700/60 bg-violet-500/10 px-2.5 py-1 text-violet-300 hover:bg-violet-500/20 disabled:opacity-50"
+                    >
+                      <Sparkles className="h-3.5 w-3.5" />
+                      {explainingId === f.id ? "Analizando..." : "Explicar con IA"}
+                    </button>
+                    <button
+                      type="button"
                       onClick={() =>
                         setExpandedAuditId((prev) => (prev === f.id ? null : f.id))
                       }
@@ -307,6 +343,53 @@ export function FindingsPanel() {
                     </button>
                   </div>
                 </div>
+
+                {explanations[f.id] && (
+                  <div className="mt-3 space-y-2 rounded-lg border border-violet-800/50 bg-violet-950/20 p-3.5 text-xs">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="font-semibold text-violet-300">
+                        Explicación IA ({explanations[f.id].model})
+                      </span>
+                      <span className="rounded bg-slate-800 px-2 py-0.5 text-[11px] text-slate-300">
+                        {explanations[f.id].cached ? "caché local" : "recién generada"}
+                      </span>
+                    </div>
+                    <p className="text-slate-200">{explanations[f.id].summary}</p>
+                    <p className="text-amber-300">
+                      <strong>Riesgo:</strong> {explanations[f.id].risk}
+                    </p>
+                    {explanations[f.id].suggested_actions.length > 0 && (
+                      <div>
+                        <div className="mb-1 font-medium text-slate-300">
+                          Acciones sugeridas (enviadas a revisión manual en estado pending):
+                        </div>
+                        <ul className="space-y-1 font-mono text-[11px] text-sky-300">
+                          {explanations[f.id].suggested_actions.map((cmd, idx) => (
+                            <li key={idx} className="rounded bg-slate-950/70 px-2 py-1">
+                              $ {cmd}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    {explanations[f.id].references.length > 0 && (
+                      <div className="flex flex-wrap items-center gap-2 pt-1 text-[11px] text-slate-400">
+                        <BookOpen className="h-3.5 w-3.5 text-sky-400" />
+                        {explanations[f.id].references.map((url, idx) => (
+                          <a
+                            key={idx}
+                            href={url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="underline hover:text-sky-300"
+                          >
+                            {url}
+                          </a>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {expandedAuditId === f.id && <AuditDrawer findingId={f.id} />}
               </div>

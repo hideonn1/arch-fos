@@ -9,6 +9,152 @@
     "version": "0.1.0"
   },
   "paths": {
+    "/api/v1/actions": {
+      "get": {
+        "tags": [
+          "ai"
+        ],
+        "summary": "Lists suggested remediation commands awaiting or having received human approval (US-28).",
+        "operationId": "list_suggested_actions",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/ActionStatus"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          {
+            "name": "finding_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Suggested remediation actions",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuggestedActionsPage"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/actions/{id}": {
+      "patch": {
+        "tags": [
+          "ai"
+        ],
+        "summary": "Records explicit human approval or rejection for a suggested action without auto-executing it (US-28).",
+        "operationId": "review_suggested_action",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Suggested Action ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReviewActionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Action review recorded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MutationAck"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "CSRF validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Action not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/auth/login": {
       "post": {
         "tags": [
@@ -680,6 +826,89 @@
           },
           "401": {
             "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/findings/{id}/explain": {
+      "post": {
+        "tags": [
+          "ai"
+        ],
+        "summary": "Explains a finding using the local Ollama LLM (`qwen2.5-coder:14b` by default) enriched with\noffline Arch Wiki RAG citations and cached by finding hash (US-26, US-27, US-28).",
+        "operationId": "explain_finding",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Finding ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExplainFindingRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Validated LLM explanation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LlmExplanation"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "CSRF validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Finding not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Ollama unavailable or invalid response",
             "content": {
               "application/json": {
                 "schema": {
@@ -1569,10 +1798,83 @@
           }
         }
       }
+    },
+    "/api/v1/wiki/search": {
+      "get": {
+        "tags": [
+          "ai"
+        ],
+        "summary": "Searches the offline Arch Wiki RAG index (US-27).",
+        "operationId": "search_wiki_rag",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Cited Arch Wiki search results",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WikiSearchResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Empty query",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
     "schemas": {
+      "ActionStatus": {
+        "type": "string",
+        "description": "Approval lifecycle state for a suggested remediation command (US-28).",
+        "enum": [
+          "pending",
+          "approved",
+          "rejected"
+        ]
+      },
       "ApiErrorBody": {
         "type": "object",
         "description": "Standard API error body.",
@@ -1851,6 +2153,18 @@
           "next_cursor": {
             "type": [
               "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "ExplainFindingRequest": {
+        "type": "object",
+        "description": "Optional request body when requesting an LLM explanation (US-26).",
+        "properties": {
+          "force_refresh": {
+            "type": [
+              "boolean",
               "null"
             ]
           }
@@ -2235,6 +2549,65 @@
           }
         }
       },
+      "LlmExplanation": {
+        "type": "object",
+        "description": "Validated LLM explanation for a security finding (US-26).",
+        "required": [
+          "finding_id",
+          "finding_hash",
+          "model",
+          "summary",
+          "risk",
+          "suggested_actions",
+          "references",
+          "rag_sources",
+          "cached",
+          "created_at"
+        ],
+        "properties": {
+          "cached": {
+            "type": "boolean"
+          },
+          "created_at": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "finding_hash": {
+            "type": "string"
+          },
+          "finding_id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "model": {
+            "type": "string"
+          },
+          "rag_sources": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RagSource"
+            }
+          },
+          "references": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "risk": {
+            "type": "string"
+          },
+          "suggested_actions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "summary": {
+            "type": "string"
+          }
+        }
+      },
       "LoginRequest": {
         "type": "object",
         "description": "Login request using the local API token.",
@@ -2452,6 +2825,47 @@
           }
         }
       },
+      "RagSource": {
+        "type": "object",
+        "description": "Cited Arch Wiki passage returned by local RAG (US-27).",
+        "required": [
+          "title",
+          "url",
+          "section",
+          "snippet",
+          "score"
+        ],
+        "properties": {
+          "score": {
+            "type": "number",
+            "format": "double"
+          },
+          "section": {
+            "type": "string"
+          },
+          "snippet": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          }
+        }
+      },
+      "ReviewActionRequest": {
+        "type": "object",
+        "description": "Request body to approve or reject a suggested action (US-28).",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "status": {
+            "$ref": "#/components/schemas/ActionStatus"
+          }
+        }
+      },
       "Rule": {
         "type": "object",
         "description": "Rule configuration stored in the database.",
@@ -2660,6 +3074,78 @@
           "resolved": {
             "type": "integer",
             "format": "int64"
+          }
+        }
+      },
+      "SuggestedAction": {
+        "type": "object",
+        "description": "Human-reviewed remediation command in `pending`/`approved`/`rejected` state (US-28).",
+        "required": [
+          "id",
+          "finding_id",
+          "command",
+          "rationale",
+          "status",
+          "created_at"
+        ],
+        "properties": {
+          "command": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "decided_at": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "decided_by": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "finding_id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "rationale": {
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ActionStatus"
+          }
+        }
+      },
+      "SuggestedActionsPage": {
+        "type": "object",
+        "required": [
+          "items",
+          "has_more"
+        ],
+        "properties": {
+          "has_more": {
+            "type": "boolean"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SuggestedAction"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       },
@@ -2946,6 +3432,21 @@
           },
           "status": {
             "$ref": "#/components/schemas/FindingStatus"
+          }
+        }
+      },
+      "WikiSearchResponse": {
+        "type": "object",
+        "description": "Search results from the offline Arch Wiki index (US-27).",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RagSource"
+            }
           }
         }
       }

@@ -4,6 +4,40 @@
  */
 
 export interface paths {
+    "/api/v1/actions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Lists suggested remediation commands awaiting or having received human approval (US-28). */
+        get: operations["list_suggested_actions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/actions/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Records explicit human approval or rejection for a suggested action without auto-executing it (US-28). */
+        patch: operations["review_suggested_action"];
+        trace?: never;
+    };
     "/api/v1/auth/login": {
         parameters: {
             query?: never;
@@ -134,6 +168,26 @@ export interface paths {
         get: operations["list_finding_audit"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/findings/{id}/explain": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Explains a finding using the local Ollama LLM (`qwen2.5-coder:14b` by default) enriched with
+         *     offline Arch Wiki RAG citations and cached by finding hash (US-26, US-27, US-28).
+         */
+        post: operations["explain_finding"];
         delete?: never;
         options?: never;
         head?: never;
@@ -385,10 +439,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/wiki/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Searches the offline Arch Wiki RAG index (US-27). */
+        get: operations["search_wiki_rag"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /**
+         * @description Approval lifecycle state for a suggested remediation command (US-28).
+         * @enum {string}
+         */
+        ActionStatus: "pending" | "approved" | "rejected";
         /** @description Standard API error body. */
         ApiErrorBody: {
             error: string;
@@ -476,6 +552,10 @@ export interface components {
             has_more: boolean;
             items: components["schemas"]["Event"][];
             next_cursor?: string | null;
+        };
+        /** @description Optional request body when requesting an LLM explanation (US-26). */
+        ExplainFindingRequest: {
+            force_refresh?: boolean | null;
         };
         /** @description Security or system finding produced by deterministic rules. */
         Finding: {
@@ -598,6 +678,21 @@ export interface components {
             items: components["schemas"]["Listener"][];
             next_cursor?: string | null;
         };
+        /** @description Validated LLM explanation for a security finding (US-26). */
+        LlmExplanation: {
+            cached: boolean;
+            /** Format: int64 */
+            created_at: number;
+            finding_hash: string;
+            /** Format: int64 */
+            finding_id: number;
+            model: string;
+            rag_sources: components["schemas"]["RagSource"][];
+            references: string[];
+            risk: string;
+            suggested_actions: string[];
+            summary: string;
+        };
         /** @description Login request using the local API token. */
         LoginRequest: {
             token: string;
@@ -663,6 +758,19 @@ export interface components {
             has_more: boolean;
             items: components["schemas"]["Package"][];
             next_cursor?: string | null;
+        };
+        /** @description Cited Arch Wiki passage returned by local RAG (US-27). */
+        RagSource: {
+            /** Format: double */
+            score: number;
+            section: string;
+            snippet: string;
+            title: string;
+            url: string;
+        };
+        /** @description Request body to approve or reject a suggested action (US-28). */
+        ReviewActionRequest: {
+            status: components["schemas"]["ActionStatus"];
         };
         /** @description Rule configuration stored in the database. */
         Rule: {
@@ -732,6 +840,26 @@ export interface components {
             new: number;
             /** Format: int64 */
             resolved: number;
+        };
+        /** @description Human-reviewed remediation command in `pending`/`approved`/`rejected` state (US-28). */
+        SuggestedAction: {
+            command: string;
+            /** Format: int64 */
+            created_at: number;
+            /** Format: int64 */
+            decided_at?: number | null;
+            decided_by?: string | null;
+            /** Format: int64 */
+            finding_id: number;
+            /** Format: int64 */
+            id: number;
+            rationale: string;
+            status: components["schemas"]["ActionStatus"];
+        };
+        SuggestedActionsPage: {
+            has_more: boolean;
+            items: components["schemas"]["SuggestedAction"][];
+            next_cursor?: string | null;
         };
         /** @description Suppression rule excluding a `(rule_id, entity_type, entity_id)` tuple until optional expiration. */
         Suppression: {
@@ -826,6 +954,10 @@ export interface components {
             note?: string | null;
             status: components["schemas"]["FindingStatus"];
         };
+        /** @description Search results from the offline Arch Wiki index (US-27). */
+        WikiSearchResponse: {
+            items: components["schemas"]["RagSource"][];
+        };
     };
     responses: never;
     parameters: never;
@@ -835,6 +967,93 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    list_suggested_actions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                status: components["schemas"]["ActionStatus"] | null;
+                finding_id: number | null;
+                limit: number | null;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Suggested remediation actions */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SuggestedActionsPage"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorBody"];
+                };
+            };
+        };
+    };
+    review_suggested_action: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Suggested Action ID */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReviewActionRequest"];
+            };
+        };
+        responses: {
+            /** @description Action review recorded */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MutationAck"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorBody"];
+                };
+            };
+            /** @description CSRF validation failed */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorBody"];
+                };
+            };
+            /** @description Action not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorBody"];
+                };
+            };
+        };
+    };
     auth_login: {
         parameters: {
             query?: never;
@@ -1177,6 +1396,69 @@ export interface operations {
             };
             /** @description Unauthorized */
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorBody"];
+                };
+            };
+        };
+    };
+    explain_finding: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Finding ID */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExplainFindingRequest"];
+            };
+        };
+        responses: {
+            /** @description Validated LLM explanation */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LlmExplanation"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorBody"];
+                };
+            };
+            /** @description CSRF validation failed */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorBody"];
+                };
+            };
+            /** @description Finding not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorBody"];
+                };
+            };
+            /** @description Ollama unavailable or invalid response */
+            502: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -1714,6 +1996,47 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TimelineEntitiesResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorBody"];
+                };
+            };
+        };
+    };
+    search_wiki_rag: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                q: string;
+                limit: number | null;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Cited Arch Wiki search results */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WikiSearchResponse"];
+                };
+            };
+            /** @description Empty query */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorBody"];
                 };
             };
             /** @description Unauthorized */
