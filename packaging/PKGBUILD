@@ -1,23 +1,38 @@
 # Maintainer: hideon
 pkgname=arch-fos
 pkgver=0.1.0
-pkgrel=1
+pkgrel=2
 pkgdesc="Arch Forward Observations System - local security telemetry, pacman/AUR audit and dashboard"
 arch=('x86_64')
 url="https://github.com/hideon/arch-fos"
 license=('MIT')
 depends=('pacman' 'sqlite' 'systemd')
 makedepends=('cargo' 'clang' 'nodejs' 'npm')
-backup=('etc/arch-fos/rules/unowned_suid.yml'
-        'etc/arch-fos/rules/ld_preload.yml'
-        'etc/arch-fos/rules/aur_foreign_install.yml'
-        'etc/arch-fos/rules/wildcard_listener.yml')
+optdepends=(
+    'ollama: explicaciones de hallazgos con LLM local (qwen2.5-coder:14b) y embeddings RAG'
+    'bubblewrap: compilación aislada sin red en arch-fos sandbox-build'
+    'yara: escaneo por reglas YARA sobre paquetes compilados'
+    'clamav: escaneo antivirus clamscan sobre artefactos'
+    'syft: generación de SBOM CycloneDX en sandbox-build'
+    'osv-scanner: escaneo de vulnerabilidades en dependencias embebidas'
+    'arch-wiki-docs: documentación offline para indexar con arch-fos index-wiki'
+)
+backup=(
+    'etc/arch-fos/rules/unowned_suid.yml'
+    'etc/arch-fos/rules/ld_preload.yml'
+    'etc/arch-fos/rules/aur_foreign_install.yml'
+    'etc/arch-fos/rules/wildcard_listener.yml'
+)
+install=arch-fos.install
+options=('!lto' '!debug')
 source=()
 sha256sums=()
 
 build() {
     cd "$startdir/.."
-    npm --prefix web ci --prefer-offline
+    if [[ ! -d web/node_modules ]]; then
+        npm --prefix web ci --prefer-offline
+    fi
     npm --prefix web run build
     cargo build --release --locked --workspace
 }

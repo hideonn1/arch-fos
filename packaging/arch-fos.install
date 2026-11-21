@@ -1,0 +1,17 @@
+post_install() {
+    cat <<'EOF'
+==> Arch Forward Observations System (arch-fos) instalado.
+==> Para habilitar e iniciar los servicios en segundo plano:
+      sudo systemctl enable --now arch-fos-collector.service arch-fos-api.service
+==> Dashboard web local:
+      http://127.0.0.1:8420
+==> Consultar el token local de inicio de sesión:
+      sudo cat /run/arch-fos-api/api.token
+==> Auditar el aislamiento de systemd:
+      systemd-analyze security arch-fos-collector.service arch-fos-api.service
+EOF
+}
+
+post_upgrade() {
+    echo "==> Reinicia los servicios si estaban activos: sudo systemctl restart arch-fos-collector.service arch-fos-api.service"
+}

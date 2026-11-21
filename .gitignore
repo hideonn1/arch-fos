@@ -4,6 +4,9 @@ api.token
 /target/
 /web/node_modules/
 /web/dist/
+/packaging/pkg/
+/packaging/src/
+/packaging/*.pkg.tar.*
 *.tsbuildinfo
 *.db
 *.db-wal

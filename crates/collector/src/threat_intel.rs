@@ -11,8 +11,19 @@ use crate::db::{NewFinding, upsert_finding_respecting_suppression};
 use crate::listeners::{load_exe_package_index, resolve_package_for_exe};
 
 const FEODO_IP_FEED_URL: &str = "https://feodotracker.abuse.ch/downloads/ipblocklist.txt";
-const URLHAUS_HOST_FEED_URL: &str = "https://urlhaus.abuse.ch/downloads/hostfile/";
+const URLHAUS_AUTH_KEY_ENV: &str = "ARCH_FOS_ABUSECH_AUTH_KEY";
 const FEED_CACHE_TTL_MS: i64 = 60 * 60 * 1000;
+
+fn urlhaus_keyed_hostfile_url() -> Option<String> {
+    let key = std::env::var(URLHAUS_AUTH_KEY_ENV).ok()?;
+    let trimmed = key.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "https://urlhaus-api.abuse.ch/v2/files/exports/{trimmed}/hostfile.txt"
+    ))
+}
 
 /// Parsed threat intelligence indicator from abuse.ch feeds (US-18).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -112,14 +123,21 @@ pub async fn run_threat_intel_once(
             parse_feodo_ipblocklist,
         )
         .await;
-        sync_feed(
-            pool,
-            "urlhaus",
-            URLHAUS_HOST_FEED_URL,
-            now_ms,
-            parse_urlhaus_hostfile,
-        )
-        .await;
+        if let Some(urlhaus_url) = urlhaus_keyed_hostfile_url() {
+            sync_feed(
+                pool,
+                "urlhaus",
+                &urlhaus_url,
+                now_ms,
+                parse_urlhaus_hostfile,
+            )
+            .await;
+        } else {
+            tracing::debug!(
+                env = URLHAUS_AUTH_KEY_ENV,
+                "skipping URLhaus v2 export (set optional abuse.ch Auth-Key env var to enable)"
+            );
+        }
     }
 
     let ind_rows: Vec<(String, String, String, String)> = sqlx::query_as(
@@ -395,7 +413,8 @@ where
             warn!(feed = feed_name, status = %resp.status(), "threat feed returned non-success status");
         }
         Err(err) => {
-            warn!(feed = feed_name, error = %err, "failed to sync threat feed");
+            let safe_err = err.without_url();
+            warn!(feed = feed_name, error = %safe_err, "failed to sync threat feed");
         }
     }
 }

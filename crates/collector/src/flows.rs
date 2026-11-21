@@ -298,8 +298,15 @@ pub fn poll_sock_diag_flows() -> Result<Vec<ObservedFlow>, std::io::Error> {
         "udp",
         StateFlags::all(),
     )?);
+    entries.extend(query_diag_sockets(
+        AF_INET6,
+        IPPROTO_UDP,
+        "udp",
+        StateFlags::all(),
+    )?);
 
     let inode_proc = map_inodes_to_proc();
+    let uid_names = load_uid_usernames();
     let now_ms = current_unix_ms();
     let mut flows = Vec::new();
 
@@ -307,15 +314,25 @@ pub fn poll_sock_diag_flows() -> Result<Vec<ObservedFlow>, std::io::Error> {
         if e.dst_port == 0 || e.dst_ip.is_unspecified() {
             continue;
         }
-        let Some(proc_meta) = inode_proc.get(&e.inode) else {
-            continue;
+        let (pid, uid, comm, exe_path) = if let Some(proc_meta) = inode_proc.get(&e.inode) {
+            (
+                Some(proc_meta.pid),
+                proc_meta.uid.or(Some(i64::from(e.uid))),
+                proc_meta.comm.clone(),
+                proc_meta.exe_path.clone(),
+            )
+        } else {
+            let fallback_comm = uid_names
+                .get(&e.uid)
+                .map_or_else(|| format!("uid-{}", e.uid), |u| format!("user:{u}"));
+            (None, Some(i64::from(e.uid)), fallback_comm, None)
         };
         flows.push(ObservedFlow {
             ts_ms: now_ms,
-            pid: Some(proc_meta.pid),
-            uid: proc_meta.uid,
-            comm: proc_meta.comm.clone(),
-            exe_path: proc_meta.exe_path.clone(),
+            pid,
+            uid,
+            comm,
+            exe_path,
             src_ip: e.src_ip.to_string(),
             dst_ip: e.dst_ip.to_string(),
             dst_port: i64::from(e.dst_port),
@@ -329,12 +346,32 @@ pub fn poll_sock_diag_flows() -> Result<Vec<ObservedFlow>, std::io::Error> {
     Ok(flows)
 }
 
+fn load_uid_usernames() -> HashMap<u32, String> {
+    let mut map = HashMap::new();
+    let Ok(passwd) = std::fs::read_to_string("/etc/passwd") else {
+        return map;
+    };
+    for line in passwd.lines() {
+        let mut parts = line.split(':');
+        let Some(name) = parts.next() else { continue };
+        let _pw = parts.next();
+        let Some(uid_str) = parts.next() else {
+            continue;
+        };
+        if let Ok(uid) = uid_str.parse::<u32>() {
+            map.entry(uid).or_insert_with(|| name.to_string());
+        }
+    }
+    map
+}
+
 struct RawDiagFlow {
     protocol: &'static str,
     src_ip: IpAddr,
     dst_ip: IpAddr,
     dst_port: u16,
     inode: u32,
+    uid: u32,
 }
 
 fn query_diag_sockets(
@@ -402,6 +439,7 @@ fn query_diag_sockets(
                             dst_ip: h.socket_id.destination_address,
                             dst_port: h.socket_id.destination_port,
                             inode: h.inode,
+                            uid: h.uid,
                         });
                     }
                 }

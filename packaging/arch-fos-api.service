@@ -10,16 +10,18 @@ DynamicUser=yes
 SupplementaryGroups=arch-fos-collector
 RuntimeDirectory=arch-fos-api
 RuntimeDirectoryMode=0700
-ExecStart=/usr/bin/arch-fos-api --db-path /var/lib/arch-fos/arch-fos.db --listen 127.0.0.1:8420 --token-file /run/arch-fos-api/api.token --collector-socket /run/arch-fos/collector.sock
+ExecStart=/usr/bin/arch-fos-api --db-path /var/lib/arch-fos/arch-fos.db --listen 127.0.0.1:8420 --token-file /run/arch-fos-api/api.token --collector-socket /run/arch-fos/collector.sock --ollama-url http://127.0.0.1:11434 --ollama-model qwen2.5-coder:14b
 Restart=on-failure
-RestartSec=5s
+RestartSec=3s
 
 # US-03: Zero privileges / zero capabilities
+# Note: /var/lib/arch-fos is 0750 and arch-fos.db/-wal are 0640 owned by arch-fos-collector,
+# so DynamicUser can only mmap read marks on 0660 arch-fos.db-shm while SQLite enforces mode=ro.
 CapabilityBoundingSet=
 AmbientCapabilities=
 NoNewPrivileges=yes
 ProtectSystem=strict
-ReadOnlyPaths=/var/lib/arch-fos
+ReadWritePaths=/var/lib/arch-fos /run/arch-fos
 
 # Hardening for systemd-analyze security <= 3.0
 ProtectHome=yes
@@ -45,6 +47,7 @@ IPAddressAllow=localhost
 SystemCallArchitectures=native
 SystemCallFilter=@system-service
 SystemCallFilter=~@privileged @resources @obsolete @debug @mount @reboot @swap @raw-io @cpu-emulation
+SystemCallErrorNumber=EPERM
 UMask=0077
 
 [Install]

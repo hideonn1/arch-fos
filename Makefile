@@ -1,4 +1,4 @@
-.PHONY: all check build openapi web-build clean
+.PHONY: all check build openapi web-build pkg clean
 
 all: check build
 
@@ -17,6 +17,9 @@ web-build:
 
 build: openapi web-build
 	cargo build --workspace --release
+
+pkg:
+	cd packaging && makepkg -sf
 
 clean:
 	cargo clean

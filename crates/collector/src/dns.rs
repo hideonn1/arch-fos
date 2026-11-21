@@ -110,6 +110,20 @@ pub fn split_base_domain(qname: &str) -> (String, String) {
     (base, sub)
 }
 
+/// Extracts the longest individual DNS label from the subdomain portion (or base domain if none).
+/// Evaluating per-label avoids false positives on normal multi-label domains like
+/// `signaler-pa.clients6.google.com`.
+#[must_use]
+pub fn longest_entropy_label<'a>(base_domain: &'a str, sub: &'a str) -> &'a str {
+    if !sub.is_empty() {
+        sub.split('.')
+            .max_by_key(|label| label.len())
+            .unwrap_or(sub)
+    } else {
+        base_domain.split('.').next().unwrap_or(base_domain)
+    }
+}
+
 /// Evaluates DGA & DNS exfiltration heuristics across recent DNS queries (US-17).
 #[must_use]
 pub fn evaluate_dns_heuristics(queries: &[DnsQueryRecord], now_ms: i64) -> Vec<NewFinding> {
@@ -119,19 +133,11 @@ pub fn evaluate_dns_heuristics(queries: &[DnsQueryRecord], now_ms: i64) -> Vec<N
 
     for q in queries {
         let (base_domain, sub) = split_base_domain(&q.qname);
-        let label_for_entropy = if sub.is_empty() {
-            base_domain.as_str()
-        } else {
-            sub.as_str()
-        };
-        let entropy = if q.entropy > 0.0 {
-            q.entropy
-        } else {
-            shannon_entropy(label_for_entropy)
-        };
+        let label_for_entropy = longest_entropy_label(&base_domain, &sub);
+        let entropy = shannon_entropy(label_for_entropy);
 
-        // 1. High entropy subdomain (DGA / encoded exfil)
-        if label_for_entropy.len() >= 12 && entropy >= 3.6 {
+        // 1. High entropy single label (DGA / encoded exfil: >= 16 chars and entropy >= 4.0)
+        if label_for_entropy.len() >= 16 && entropy >= 4.0 {
             findings.push(NewFinding {
                 ts: now_ms,
                 rule_id: "dns_high_entropy".to_string(),
@@ -140,11 +146,12 @@ pub fn evaluate_dns_heuristics(queries: &[DnsQueryRecord], now_ms: i64) -> Vec<N
                 entity_id: q.qname.clone(),
                 title: format!("Consulta DNS con alta entropía: {}", q.qname),
                 summary: format!(
-                    "Proceso {} consultó '{}' (entropía {:.2}, posible DGA o exfiltración).",
-                    q.comm, q.qname, entropy
+                    "Proceso {} consultó '{}' (etiqueta '{}' con entropía {:.2}, posible DGA o exfiltración).",
+                    q.comm, q.qname, label_for_entropy, entropy
                 ),
                 evidence: json!({
                     "qname": q.qname,
+                    "label": label_for_entropy,
                     "entropy": entropy,
                     "comm": q.comm,
                     "pid": q.pid,
@@ -343,8 +350,8 @@ pub fn spawn_dns_capture(pool: SqlitePool) -> Option<tokio::task::JoinHandle<()>
             if let Some(udp_payload) = extract_udp_53_payload(frame)
                 && let Some((qname, qtype, rcode)) = parse_dns_wire_packet(udp_payload)
             {
-                let (_, sub) = split_base_domain(&qname);
-                let entropy = shannon_entropy(if sub.is_empty() { &qname } else { &sub });
+                let (base, sub) = split_base_domain(&qname);
+                let entropy = shannon_entropy(longest_entropy_label(&base, &sub));
                 let ts = SystemTime::now()
                     .duration_since(UNIX_EPOCH)
                     .map(|d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX))
@@ -454,11 +461,31 @@ mod tests {
             entropy: 0.0,
         });
 
+        // Benign multi-label domain (e.g. Google) must NOT trigger dns_high_entropy
+        queries.push(DnsQueryRecord {
+            ts: 2001,
+            pid: None,
+            uid: None,
+            comm: "net-dns".to_string(),
+            exe_path: None,
+            package_name: None,
+            qname: "signaler-pa.clients6.google.com".to_string(),
+            qtype: "A".to_string(),
+            rcode: 0,
+            entropy: 0.0,
+        });
+
         let findings = evaluate_dns_heuristics(&queries, 5000);
         let rules: HashSet<&str> = findings.iter().map(|f| f.rule_id.as_str()).collect();
         assert!(rules.contains("dns_high_entropy"));
         assert!(rules.contains("dns_excessive_length"));
         assert!(rules.contains("dns_high_nxdomain_rate"));
         assert!(rules.contains("dns_subdomain_explosion"));
+        assert!(
+            !findings.iter().any(|f| {
+                f.rule_id == "dns_high_entropy" && f.entity_id == "signaler-pa.clients6.google.com"
+            }),
+            "benign multi-label Google domain should not trigger dns_high_entropy"
+        );
     }
 }
