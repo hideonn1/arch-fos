@@ -1,3 +1,11 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/afos-horizontal.svg">
+    <source media="(prefers-color-scheme: light)" srcset="assets/afos-horizontal-claro.svg">
+    <img alt="AFOS · Arch Forward Observations System" src="assets/afos-horizontal.svg" width="380">
+  </picture>
+</p>
+
 # Arch Forward Observations System (`arch-fos`)
 
 Plataforma local y *full-stack* de observabilidad y auditoría de seguridad para **Arch Linux**, diseñada con separación estricta de privilegios, base de datos SQLite en modo WAL y dashboard web embebido.
@@ -26,6 +34,12 @@ Plataforma local y *full-stack* de observabilidad y auditoría de seguridad para
 - **Baseline de red (14 días):** aprendizaje por proceso con detección de primer tráfico saliente, puertos de destino nuevos y *beaconing* periódico.
 - **Servicios y persistencia:** inventario de units `systemd` y consumo cgroup vía D-Bus (`zbus`), detección de cambios en units/timers, crontabs, `autostart`, shell RC, `ld.so.preload`, módulos del kernel y binarios SUID/SGID.
 - **Reglas declarativas:** reglas YAML estilo Sigma en `rules/` con recarga en caliente y mapeo opcional a **MITRE ATT&CK**.
+
+### IA local, RAG y build aislado
+- **Explicación de hallazgos con Ollama (`qwen2.5-coder:14b` por defecto):** cliente local con timeout, caché en SQLite por hash del hallazgo, entrada JSON delimitada/truncada contra *prompt injection*, salida validada contra esquema estricto (`summary`, `risk`, `suggested_actions[]`, `references[]`) y sin herramientas de ejecución.
+- **RAG offline sobre la Arch Wiki:** búsqueda híbrida (embeddings vectoriales locales con Ollama `/api/embed` + fallback léxico y corpus base integrado de seguridad de Arch Wiki) con citas verificables de `wiki.archlinux.org` e indexador `arch-fos index-wiki`.
+- **Acciones sugeridas con aprobación humana:** comandos propuestos almacenados en estado `pending` para revisión explícita (`approved` / `rejected`) en el dashboard, sin ejecución automática.
+- **Build en sandbox y análisis de artefactos (`arch-fos sandbox-build`):** compilación de `PKGBUILD` aislada sin red tras la descarga (`bwrap --unshare-net` o `systemd-nspawn --private-network`), inspección de `.PKGINFO`/`.INSTALL` y soporte opcional para YARA, ClamAV, `syft` y `grype`/`osv-scanner`.
 
 ### API OpenAPI y Dashboard
 - **Contrato tipado:** API REST en Axum documentada con OpenAPI 3.1 (`utoipa`) y tipos TypeScript autogenerados (`openapi-typescript`).
@@ -59,6 +73,7 @@ Plataforma local y *full-stack* de observabilidad y auditoría de seguridad para
 
 ```text
 arch-fos/
+├── assets/          # Logotipos SVG/PNG y favicons de AFOS (modo claro y oscuro)
 ├── crates/
 │   ├── common/      # Modelos de dominio, contratos API e IPC (sin I/O)
 │   ├── analyzer/    # Análisis estático PKGBUILD/.install (tree-sitter-bash) y diff git
@@ -121,31 +136,80 @@ cargo run -p arch-fos-cli -- scan-pkgbuild ./ruta/al/PKGBUILD ./ruta/al/pkg.inst
 
 # Comparar dos revisiones de un repositorio AUR local
 cargo run -p arch-fos-cli -- diff-pkgbuild ./ruta/al/repo-aur --from HEAD~1 --to HEAD
+
+# Compilar un PKGBUILD en sandbox sin red (bwrap) e inspeccionar el artefacto
+cargo run -p arch-fos-cli -- sandbox-build ./ruta/al/dir-pkgbuild --backend bwrap
+
+# Indexar documentación offline de la Arch Wiki (ej. paquete arch-wiki-docs)
+cargo run -p arch-fos-cli -- index-wiki /usr/share/doc/arch-wiki/html/en --db-path ./arch-fos.db --embed
 ```
 
 ---
 
-## Instalación en Arch Linux (`PKGBUILD`)
+## Instalación permanente en Arch Linux (`PKGBUILD` y `systemd`)
 
-El directorio [`packaging/`](packaging/) incluye los archivos necesarios para construir e instalar el paquete del sistema con `makepkg`:
+Es el modo recomendado para uso real: instala los binarios con el dashboard embebido, el usuario del sistema (`sysusers.d`), `/var/lib/arch-fos` (`tmpfiles.d`), el hook `PreTransaction` de `pacman`, las reglas YAML en `/etc/arch-fos/rules/` y las units endurecidas de `systemd` (con `CAP_BPF`, `CAP_NET_RAW` y `CAP_PERFMON` en el colector y `DynamicUser=yes` sin privilegios en la API).
+
+### 1. Instalar herramientas opcionales recomendadas (análisis y RAG)
+
+```bash
+sudo pacman -S yara clamav syft osv-scanner arch-wiki-docs bubblewrap
+sudo freshclam
+```
+
+Para explicaciones IA y búsqueda vectorial local con Ollama:
+
+```bash
+ollama pull qwen2.5-coder:14b
+ollama pull nomic-embed-text
+```
+
+### 2. Construir e instalar el paquete `arch-fos`
 
 ```bash
 cd packaging
 makepkg -si
 ```
 
-Luego en el host:
+### 3. Habilitar e iniciar los servicios al arranque
+
 ```bash
 sudo systemctl enable --now arch-fos-collector.service arch-fos-api.service
+```
+
+### 4. Acceder al dashboard y verificar el estado
+
+```bash
+# Obtener el token local de inicio de sesión para http://127.0.0.1:8420
+sudo cat /run/arch-fos-api/api.token
+
+# Revisar logs en vivo
+sudo journalctl -u arch-fos-collector.service -u arch-fos-api.service -f
+
+# Auditar el endurecimiento de las units systemd (objetivo <= 3.0)
 systemd-analyze security arch-fos-collector.service arch-fos-api.service
+
+# Indexar la Arch Wiki local en la base de datos del sistema (opcional)
+sudo -u arch-fos-collector arch-fos index-wiki /usr/share/doc/arch-wiki/html/en --db-path /var/lib/arch-fos/arch-fos.db --embed
+
+# Habilitar feed URLhaus v2 con Auth-Key gratuita de auth.abuse.ch (opcional)
+sudo systemctl edit arch-fos-collector.service
+# [Service]
+# Environment=ARCH_FOS_ABUSECH_AUTH_KEY=<tu-auth-key>
+```
+
+Para desinstalar limpiamente en cualquier momento:
+
+```bash
+sudo systemctl disable --now arch-fos-api.service arch-fos-collector.service
+sudo pacman -Rns arch-fos
 ```
 
 ---
 
-## Roadmap
+## Estado
 
-- **Hitos 1–4 (implementados):** Esqueleto + SQLite WAL + inventario ALPM, servicios/puertos/CVEs/AUR/análisis PKGBUILD/gestión de hallazgos, red eBPF/DNS/Threat Intel/baseline/SSE, persistencia/integridad `mtree`/línea de tiempo/binario único/reglas YAML Sigma.
-- **Próxima etapa (IA local y aislamiento):** explicación de hallazgos con LLM local (Ollama) protegido contra inyección de prompts, RAG offline sobre la Arch Wiki, aprobación manual de acciones sugeridas y compilación aislada de paquetes en sandbox (`systemd-nspawn` / `bwrap`).
+- **Hitos 1–5 completados:** Esqueleto + SQLite WAL + inventario ALPM, servicios/puertos/CVEs/AUR/análisis PKGBUILD/gestión de hallazgos, red eBPF/DNS/Threat Intel/baseline/SSE, persistencia/integridad `mtree`/línea de tiempo/binario único/reglas YAML Sigma, e IA local con Ollama (`qwen2.5-coder:14b`), RAG offline sobre Arch Wiki, aprobación manual de acciones y build en sandbox.
 
 ---
 
