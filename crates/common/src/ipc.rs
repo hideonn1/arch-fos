@@ -1,9 +1,9 @@
 use serde::{Deserialize, Serialize};
 
-use crate::models::{FindingStatus, Severity};
+use crate::models::{ActionStatus, FindingStatus, RagSource, Severity};
 
 /// Commands sent from the unprivileged API or CLI to the sole-writer collector over Unix socket.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case")]
 pub enum CollectorCommand {
     UpdateFindingStatus {
@@ -29,6 +29,21 @@ pub enum CollectorCommand {
         severity: Severity,
         entity_id: String,
         payload: serde_json::Value,
+    },
+    SaveLlmExplanation {
+        finding_id: i64,
+        finding_hash: String,
+        model: String,
+        summary: String,
+        risk: String,
+        suggested_actions: Vec<String>,
+        references: Vec<String>,
+        rag_sources: Vec<RagSource>,
+    },
+    ReviewSuggestedAction {
+        action_id: i64,
+        status: ActionStatus,
+        actor: String,
     },
 }
 

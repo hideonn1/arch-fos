@@ -4,6 +4,7 @@ use arch_fos_api::auth::{AuthState, load_or_create_token};
 use arch_fos_api::build_router;
 use arch_fos_api::config::{ApiConfig, validate_loopback_addr};
 use arch_fos_api::db::open_readonly_pool;
+use arch_fos_api::llm::LlmConfig;
 use arch_fos_api::openapi::openapi_json_pretty;
 use arch_fos_api::routes::AppState;
 use clap::Parser;
@@ -49,6 +50,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         pool,
         auth: AuthState::new(token),
         collector_socket: cfg.collector_socket,
+        llm: LlmConfig {
+            ollama_url: cfg.ollama_url,
+            model: cfg.ollama_model,
+            embed_model: cfg.ollama_embed_model,
+            timeout_secs: cfg.ollama_timeout_secs,
+        },
     };
     let app = build_router(state, cfg.static_dir.as_deref());
 

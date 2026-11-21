@@ -59,6 +59,34 @@ pub struct ApiConfig {
     /// Print the active local login token path/value on startup (for local dev convenience).
     #[arg(long, default_value_t = false)]
     pub print_token: bool,
+
+    /// Base URL for local Ollama server (US-26 / US-27).
+    #[arg(
+        long,
+        env = "ARCH_FOS_OLLAMA_URL",
+        default_value = "http://127.0.0.1:11434"
+    )]
+    pub ollama_url: String,
+
+    /// Default Ollama chat model used to explain findings (US-26).
+    #[arg(
+        long,
+        env = "ARCH_FOS_OLLAMA_MODEL",
+        default_value = "qwen2.5-coder:14b"
+    )]
+    pub ollama_model: String,
+
+    /// Optional Ollama embeddings model for Arch Wiki RAG vector search (US-27).
+    #[arg(
+        long,
+        env = "ARCH_FOS_OLLAMA_EMBED_MODEL",
+        default_value = "nomic-embed-text"
+    )]
+    pub ollama_embed_model: String,
+
+    /// HTTP timeout in seconds for local Ollama inference requests (US-26).
+    #[arg(long, env = "ARCH_FOS_OLLAMA_TIMEOUT_SECS", default_value_t = 60)]
+    pub ollama_timeout_secs: u64,
 }
 
 /// Validates that the configured TCP socket address is strictly loopback.

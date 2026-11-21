@@ -73,6 +73,18 @@ pub async fn open_writer_pool(db_path: &Path) -> Result<SqlitePool, DbError> {
         .await;
 
     sqlx::migrate!("../../migrations").run(&pool).await?;
+
+    // Allow group readers (arch-fos-api via SupplementaryGroups=arch-fos-collector)
+    // to map SQLite WAL shared-memory read marks in `-shm` while `.db` and `-wal` remain 0640.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let shm_path = format!("{}-shm", db_path.display());
+        if Path::new(&shm_path).exists() {
+            let _ = std::fs::set_permissions(&shm_path, std::fs::Permissions::from_mode(0o660));
+        }
+    }
+
     Ok(pool)
 }
 
@@ -505,6 +517,98 @@ pub async fn apply_collector_command(
             };
             insert_events(pool, &[ev]).await?;
             Ok(CollectorResponse::Ok { id: None })
+        }
+        CollectorCommand::SaveLlmExplanation {
+            finding_id,
+            finding_hash,
+            model,
+            summary,
+            risk,
+            suggested_actions,
+            references,
+            rag_sources,
+        } => {
+            let mut tx = pool.begin().await?;
+            let actions_json = serde_json::to_string(&suggested_actions)?;
+            let refs_json = serde_json::to_string(&references)?;
+            let rag_json = serde_json::to_string(&rag_sources)?;
+
+            sqlx::query(
+                r#"
+                INSERT INTO llm_explanations (
+                    finding_hash, finding_id, model, summary, risk,
+                    suggested_actions, references_json, rag_sources, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(finding_hash) DO UPDATE SET
+                    summary = excluded.summary,
+                    risk = excluded.risk,
+                    suggested_actions = excluded.suggested_actions,
+                    references_json = excluded.references_json,
+                    rag_sources = excluded.rag_sources,
+                    created_at = excluded.created_at
+                "#,
+            )
+            .bind(&finding_hash)
+            .bind(finding_id)
+            .bind(&model)
+            .bind(&summary)
+            .bind(&risk)
+            .bind(actions_json)
+            .bind(refs_json)
+            .bind(rag_json)
+            .bind(now_ms)
+            .execute(&mut *tx)
+            .await?;
+
+            // US-28: Persist suggested actions in `pending` state for explicit human review.
+            for cmd in &suggested_actions {
+                let trimmed = cmd.trim();
+                if trimmed.is_empty() {
+                    continue;
+                }
+                sqlx::query(
+                    r#"
+                    INSERT OR IGNORE INTO suggested_actions (
+                        finding_id, command, rationale, status, created_at
+                    ) VALUES (?, ?, ?, 'pending', ?)
+                    "#,
+                )
+                .bind(finding_id)
+                .bind(trimmed)
+                .bind(&summary)
+                .bind(now_ms)
+                .execute(&mut *tx)
+                .await?;
+            }
+
+            tx.commit().await?;
+            Ok(CollectorResponse::Ok {
+                id: Some(finding_id),
+            })
+        }
+        CollectorCommand::ReviewSuggestedAction {
+            action_id,
+            status,
+            actor,
+        } => {
+            let res = sqlx::query(
+                "UPDATE suggested_actions SET status = ?, decided_by = ?, decided_at = ? WHERE id = ?",
+            )
+            .bind(status.as_str())
+            .bind(&actor)
+            .bind(now_ms)
+            .bind(action_id)
+            .execute(pool)
+            .await?;
+
+            if res.rows_affected() == 0 {
+                return Ok(CollectorResponse::NotFound {
+                    message: format!("suggested action {action_id} not found"),
+                });
+            }
+            Ok(CollectorResponse::Ok {
+                id: Some(action_id),
+            })
         }
     }
 }

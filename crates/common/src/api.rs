@@ -2,8 +2,9 @@ use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 
 use crate::models::{
-    DnsQuery, Event, Finding, FindingAuditEntry, FindingStatus, Flow1m, Listener, Package, Rule,
-    Service, Severity, Suppression, ThreatFeedStatus, TimelineEntityRef, TimelineEntry,
+    ActionStatus, DnsQuery, Event, Finding, FindingAuditEntry, FindingStatus, Flow1m, Listener,
+    LlmExplanation, Package, RagSource, Rule, Service, Severity, SuggestedAction, Suppression,
+    ThreatFeedStatus, TimelineEntityRef, TimelineEntry,
 };
 
 /// Macro to generate concrete cursor-paginated response structs with distinct OpenAPI schemas.
@@ -27,6 +28,7 @@ define_cursor_page!(ListenersPage, Listener);
 define_cursor_page!(SuppressionsPage, Suppression);
 define_cursor_page!(DnsQueriesPage, DnsQuery);
 define_cursor_page!(RulesPage, Rule);
+define_cursor_page!(SuggestedActionsPage, SuggestedAction);
 
 /// Query parameters for cursor-paginated endpoints with common filters.
 #[derive(Debug, Clone, Default, Deserialize, IntoParams)]
@@ -235,3 +237,39 @@ pub struct EntityTimelineResponse {
 pub struct TimelineEntitiesResponse {
     pub entities: Vec<TimelineEntityRef>,
 }
+
+/// Optional request body when requesting an LLM explanation (US-26).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct ExplainFindingRequest {
+    pub force_refresh: Option<bool>,
+}
+
+/// Request body to approve or reject a suggested action (US-28).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct ReviewActionRequest {
+    pub status: ActionStatus,
+}
+
+/// Query parameters for listing suggested remediation actions (US-28).
+#[derive(Debug, Clone, Default, Deserialize, IntoParams)]
+pub struct ActionFilterQuery {
+    pub status: Option<ActionStatus>,
+    pub finding_id: Option<i64>,
+    pub limit: Option<u32>,
+}
+
+/// Query parameters for searching the offline Arch Wiki RAG index (US-27).
+#[derive(Debug, Clone, Default, Deserialize, IntoParams)]
+pub struct WikiSearchQuery {
+    pub q: String,
+    pub limit: Option<u32>,
+}
+
+/// Search results from the offline Arch Wiki index (US-27).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct WikiSearchResponse {
+    pub items: Vec<RagSource>,
+}
+
+/// Re-export `LlmExplanation` usage in OpenAPI contracts.
+pub type ExplainFindingResponse = LlmExplanation;

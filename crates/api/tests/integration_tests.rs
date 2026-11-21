@@ -5,12 +5,14 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use arch_fos_api::auth::AuthState;
 use arch_fos_api::build_router;
 use arch_fos_api::db::open_readonly_pool;
+use arch_fos_api::llm::{LlmConfig, compute_finding_hash};
 use arch_fos_api::routes::AppState;
 use arch_fos_common::{
-    AuthStatus, CollectorCommand, CollectorHealth, CollectorResponse, DnsQueriesPage,
-    EntityTimelineResponse, EventsPage, FindingAuditResponse, FindingsPage, FlowsPage,
-    ListenersPage, MutationAck, OverviewSummary, PackagesPage, RulesPage, ServicesPage,
-    SuppressionsPage, ThreatIntelStatusResponse, TimelineEntitiesResponse,
+    ActionStatus, AuthStatus, CollectorCommand, CollectorHealth, CollectorResponse, DnsQueriesPage,
+    EntityTimelineResponse, EventsPage, Finding, FindingAuditResponse, FindingStatus, FindingsPage,
+    FlowsPage, ListenersPage, LlmExplanation, MutationAck, OverviewSummary, PackagesPage,
+    RulesPage, ServicesPage, Severity, SuggestedActionsPage, SuppressionsPage,
+    ThreatIntelStatusResponse, TimelineEntitiesResponse, WikiSearchResponse,
 };
 use axum::body::Body;
 use axum::http::{Method, Request, StatusCode, header};
@@ -18,6 +20,15 @@ use http_body_util::BodyExt;
 use sqlx::SqlitePool;
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions};
 use tower::ServiceExt;
+
+fn test_llm_config() -> LlmConfig {
+    LlmConfig {
+        ollama_url: "http://127.0.0.1:11434".to_string(),
+        model: "qwen2.5-coder:14b".to_string(),
+        embed_model: "nomic-embed-text".to_string(),
+        timeout_secs: 5,
+    }
+}
 
 fn temp_db_path(name: &str) -> PathBuf {
     let nanos = SystemTime::now()
@@ -118,6 +129,7 @@ async fn readonly_db_enforced_and_auth_csrf_csp_work() {
         pool: ro_pool,
         auth: AuthState::new("super-secret-local-token".to_string()),
         collector_socket: PathBuf::from("/nonexistent/collector.sock"),
+        llm: test_llm_config(),
     };
     let app = build_router(state, None);
 
@@ -297,6 +309,7 @@ async fn pagination_filters_and_openapi_endpoints() {
             pool: ro_pool,
             auth: AuthState::new("tok".to_string()),
             collector_socket: PathBuf::from("/nonexistent/collector.sock"),
+            llm: test_llm_config(),
         },
         None,
     );
@@ -439,6 +452,7 @@ async fn summary_and_events_handle_100k_events_under_1s() {
             pool: ro_pool,
             auth: AuthState::new("bench-tok".to_string()),
             collector_socket: PathBuf::from("/nonexistent/collector.sock"),
+            llm: test_llm_config(),
         },
         None,
     );
@@ -595,8 +609,25 @@ async fn finding_management_suppressions_and_audit_work_over_ipc() {
                                 id: Some(suppression_id),
                             }
                         }
-                        CollectorCommand::RecordHookEvent { .. } => {
+                        CollectorCommand::RecordHookEvent { .. }
+                        | CollectorCommand::SaveLlmExplanation { .. } => {
                             CollectorResponse::Ok { id: None }
+                        }
+                        CollectorCommand::ReviewSuggestedAction {
+                            action_id,
+                            status,
+                            actor,
+                        } => {
+                            sqlx::query("UPDATE suggested_actions SET status = ?, decided_by = ?, decided_at = 3000 WHERE id = ?")
+                                .bind(status.as_str())
+                                .bind(actor)
+                                .bind(action_id)
+                                .execute(&pool)
+                                .await
+                                .unwrap();
+                            CollectorResponse::Ok {
+                                id: Some(action_id),
+                            }
                         }
                     };
                     let out = serde_json::to_string(&resp).unwrap();
@@ -614,6 +645,7 @@ async fn finding_management_suppressions_and_audit_work_over_ipc() {
             pool: ro_pool,
             auth: AuthState::new("tok23".to_string()),
             collector_socket: sock_path.clone(),
+            llm: test_llm_config(),
         },
         None,
     );
@@ -782,6 +814,7 @@ async fn sse_stream_dns_and_threat_intel_endpoints_work() {
             pool: ro_pool,
             auth: AuthState::new("tok3".to_string()),
             collector_socket: PathBuf::from("/nonexistent.sock"),
+            llm: test_llm_config(),
         },
         None,
     );
@@ -896,6 +929,7 @@ async fn timeline_rules_and_embedded_spa_work() {
             pool: ro_pool,
             auth: AuthState::new("tok4".to_string()),
             collector_socket: PathBuf::from("/nonexistent.sock"),
+            llm: test_llm_config(),
         },
         None,
     );
@@ -961,5 +995,203 @@ async fn timeline_rules_and_embedded_spa_work() {
         "T1548.001"
     );
 
+    cleanup_db(&db_path);
+}
+
+#[tokio::test]
+async fn ai_rag_explanation_cache_and_human_action_approval_work() {
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    use tokio::net::UnixListener;
+
+    let db_path = temp_db_path("hito5_ai");
+    let sock_path = std::env::temp_dir().join(format!(
+        "arch_fos_ai_sock_{}.sock",
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    let _ = std::fs::remove_file(&sock_path);
+
+    let writer = setup_writer_db(&db_path).await;
+
+    let finding = Finding {
+        id: 1,
+        ts: 1000,
+        updated_at: 1000,
+        rule_id: "package_integrity_mismatch".to_string(),
+        severity: Severity::High,
+        status: FindingStatus::New,
+        entity_type: "package".to_string(),
+        entity_id: "openssh".to_string(),
+        title: "Archivo alterado en openssh".to_string(),
+        summary: "SHA-256 diferente al mtree".to_string(),
+        evidence: serde_json::json!({"file": "/usr/bin/ssh"}),
+    };
+
+    sqlx::query(
+        "INSERT INTO findings (id, ts, updated_at, rule_id, severity, status, entity_type, entity_id, title, summary, evidence) VALUES (1, 1000, 1000, 'package_integrity_mismatch', 'high', 'new', 'package', 'openssh', 'Archivo alterado en openssh', 'SHA-256 diferente al mtree', '{\"file\":\"/usr/bin/ssh\"}')",
+    )
+    .execute(&writer)
+    .await
+    .unwrap();
+
+    let finding_hash = compute_finding_hash(&finding, "qwen2.5-coder:14b");
+    sqlx::query(
+        r#"
+        INSERT INTO llm_explanations (
+            finding_hash, finding_id, model, summary, risk, suggested_actions, references_json, rag_sources, created_at
+        ) VALUES (?, 1, 'qwen2.5-coder:14b', 'Binario /usr/bin/ssh difiere de mtree', 'Posible manipulación de binario del sistema', '["pacman -Qkk openssh"]', '["https://wiki.archlinux.org/title/Pacman"]', '[]', 2000)
+        "#,
+    )
+    .bind(&finding_hash)
+    .execute(&writer)
+    .await
+    .unwrap();
+
+    sqlx::query(
+        "INSERT INTO suggested_actions (finding_id, command, rationale, status, created_at) VALUES (1, 'pacman -Qkk openssh', 'Verificar integridad', 'pending', 2000)",
+    )
+    .execute(&writer)
+    .await
+    .unwrap();
+
+    let listener = UnixListener::bind(&sock_path).unwrap();
+    let writer_clone = writer.clone();
+    let ipc_task = tokio::spawn(async move {
+        while let Ok((stream, _)) = listener.accept().await {
+            let pool = writer_clone.clone();
+            tokio::spawn(async move {
+                let (reader, mut w) = stream.into_split();
+                let mut lines = BufReader::new(reader).lines();
+                while let Ok(Some(line)) = lines.next_line().await {
+                    let cmd: CollectorCommand = serde_json::from_str(&line).unwrap();
+                    let resp = match cmd {
+                        CollectorCommand::ReviewSuggestedAction {
+                            action_id,
+                            status,
+                            actor,
+                        } => {
+                            sqlx::query("UPDATE suggested_actions SET status = ?, decided_by = ?, decided_at = 3000 WHERE id = ?")
+                                .bind(status.as_str())
+                                .bind(actor)
+                                .bind(action_id)
+                                .execute(&pool)
+                                .await
+                                .unwrap();
+                            CollectorResponse::Ok {
+                                id: Some(action_id),
+                            }
+                        }
+                        _ => CollectorResponse::Ok { id: None },
+                    };
+                    let out = serde_json::to_string(&resp).unwrap();
+                    w.write_all(out.as_bytes()).await.unwrap();
+                    w.write_all(b"\n").await.unwrap();
+                    w.flush().await.unwrap();
+                }
+            });
+        }
+    });
+
+    let ro_pool = open_readonly_pool(&db_path).await.unwrap();
+    let app = build_router(
+        AppState {
+            pool: ro_pool,
+            auth: AuthState::new("tok5".to_string()),
+            collector_socket: sock_path.clone(),
+            llm: test_llm_config(),
+        },
+        None,
+    );
+    let (cookie, csrf) = login(&app, "tok5").await;
+
+    // 1. Offline Arch Wiki RAG search (US-27)
+    let wiki_resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/wiki/search?q=pacman+mtree+integrity")
+                .header(header::COOKIE, &cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(wiki_resp.status(), StatusCode::OK);
+    let wiki: WikiSearchResponse = json_body(wiki_resp).await;
+    assert!(!wiki.items.is_empty());
+    assert!(wiki.items[0].url.contains("wiki.archlinux.org"));
+
+    // 2. Cached LLM explanation hit (US-26)
+    let exp_resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/api/v1/findings/1/explain")
+                .header(header::COOKIE, &cookie)
+                .header("x-csrf-token", &csrf)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(r#"{"force_refresh":false}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(exp_resp.status(), StatusCode::OK);
+    let exp: LlmExplanation = json_body(exp_resp).await;
+    assert!(exp.cached);
+    assert_eq!(exp.model, "qwen2.5-coder:14b");
+    assert_eq!(exp.suggested_actions, vec!["pacman -Qkk openssh"]);
+
+    // 3. Human approval of pending suggested action (US-28)
+    let list_act_resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/actions?status=pending")
+                .header(header::COOKIE, &cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let pending: SuggestedActionsPage = json_body(list_act_resp).await;
+    assert_eq!(pending.items.len(), 1);
+    assert_eq!(pending.items[0].status, ActionStatus::Pending);
+
+    let approve_resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::PATCH)
+                .uri("/api/v1/actions/1")
+                .header(header::COOKIE, &cookie)
+                .header("x-csrf-token", &csrf)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(r#"{"status":"approved"}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(approve_resp.status(), StatusCode::OK);
+
+    let approved_resp = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/actions?status=approved")
+                .header(header::COOKIE, &cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let approved: SuggestedActionsPage = json_body(approved_resp).await;
+    assert_eq!(approved.items.len(), 1);
+    assert_eq!(approved.items[0].decided_by.as_deref(), Some("local-admin"));
+
+    ipc_task.abort();
+    writer.close().await;
+    let _ = std::fs::remove_file(&sock_path);
     cleanup_db(&db_path);
 }

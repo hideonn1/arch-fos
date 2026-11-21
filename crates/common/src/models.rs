@@ -314,6 +314,74 @@ pub struct TimelineEntityRef {
     pub entity_id: String,
 }
 
+/// Approval lifecycle state for a suggested remediation command (US-28).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum ActionStatus {
+    Pending,
+    Approved,
+    Rejected,
+}
+
+impl ActionStatus {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Pending => "pending",
+            Self::Approved => "approved",
+            Self::Rejected => "rejected",
+        }
+    }
+
+    #[must_use]
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "pending" => Some(Self::Pending),
+            "approved" => Some(Self::Approved),
+            "rejected" => Some(Self::Rejected),
+            _ => None,
+        }
+    }
+}
+
+/// Cited Arch Wiki passage returned by local RAG (US-27).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct RagSource {
+    pub title: String,
+    pub url: String,
+    pub section: String,
+    pub snippet: String,
+    pub score: f64,
+}
+
+/// Validated LLM explanation for a security finding (US-26).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct LlmExplanation {
+    pub finding_id: i64,
+    pub finding_hash: String,
+    pub model: String,
+    pub summary: String,
+    pub risk: String,
+    pub suggested_actions: Vec<String>,
+    pub references: Vec<String>,
+    pub rag_sources: Vec<RagSource>,
+    pub cached: bool,
+    pub created_at: i64,
+}
+
+/// Human-reviewed remediation command in `pending`/`approved`/`rejected` state (US-28).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct SuggestedAction {
+    pub id: i64,
+    pub finding_id: i64,
+    pub command: String,
+    pub rationale: String,
+    pub status: ActionStatus,
+    pub decided_by: Option<String>,
+    pub decided_at: Option<i64>,
+    pub created_at: i64,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

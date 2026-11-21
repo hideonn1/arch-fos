@@ -1,7 +1,9 @@
 pub mod auth;
 pub mod config;
 pub mod db;
+pub mod llm;
 pub mod openapi;
+pub mod rag;
 pub mod routes;
 
 use std::path::Path;
@@ -18,6 +20,9 @@ use tower_http::services::{ServeDir, ServeFile};
 use crate::auth::{require_auth, security_headers};
 use crate::openapi::serve_openapi_json;
 use crate::routes::AppState;
+use crate::routes::ai::{
+    explain_finding, list_suggested_actions, review_suggested_action, search_wiki_rag,
+};
 use crate::routes::auth::{auth_login, auth_logout, auth_me};
 use crate::routes::dns::list_dns_queries;
 use crate::routes::events::list_events;
@@ -47,6 +52,10 @@ pub fn build_router(state: AppState, static_dir: Option<&Path>) -> Router {
         .route("/findings", get(list_findings))
         .route("/findings/{id}", patch(update_finding_status))
         .route("/findings/{id}/audit", get(list_finding_audit))
+        .route("/findings/{id}/explain", post(explain_finding))
+        .route("/actions", get(list_suggested_actions))
+        .route("/actions/{id}", patch(review_suggested_action))
+        .route("/wiki/search", get(search_wiki_rag))
         .route(
             "/suppressions",
             get(list_suppressions).post(create_suppression),

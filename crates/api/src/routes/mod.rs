@@ -1,3 +1,4 @@
+pub mod ai;
 pub mod auth;
 pub mod dns;
 pub mod events;
@@ -25,12 +26,14 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixStream;
 
 use crate::auth::AuthState;
+use crate::llm::LlmConfig;
 
 #[derive(Debug, Clone)]
 pub struct AppState {
     pub pool: SqlitePool,
     pub auth: AuthState,
     pub collector_socket: PathBuf,
+    pub llm: LlmConfig,
 }
 
 #[derive(Debug)]
