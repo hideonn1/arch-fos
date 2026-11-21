@@ -390,17 +390,7 @@ pub async fn run_persistence_once(
     pool: &SqlitePool,
     root_dir: &str,
 ) -> Result<(PersistenceRunStats, Vec<NewEvent>), sqlx::Error> {
-    let pkg_rows: Vec<(String, String)> = sqlx::query_as("SELECT name, files FROM packages")
-        .fetch_all(pool)
-        .await?;
-    let mut file_to_pkg = HashMap::new();
-    for (pkg_name, files_json) in pkg_rows {
-        if let Ok(files) = serde_json::from_str::<Vec<String>>(&files_json) {
-            for f in files {
-                file_to_pkg.entry(f).or_insert_with(|| pkg_name.clone());
-            }
-        }
-    }
+    let file_to_pkg = crate::listeners::load_exe_package_index(pool).await?;
 
     let root = PathBuf::from(root_dir);
     let current =

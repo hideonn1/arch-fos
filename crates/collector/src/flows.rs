@@ -175,21 +175,46 @@ impl EbpfFlowReceiver {
 fn try_attach_ebpf()
 -> Result<(mpsc::Receiver<ObservedFlow>, tokio::task::JoinHandle<()>), Box<dyn std::error::Error>> {
     let mut ebpf = Ebpf::load(EBPF_BYTES)?;
+    let mut attached_any = false;
+    let mut last_err = String::from("no eBPF hooks attached");
 
-    let tp: &mut TracePoint = ebpf
-        .program_mut("handle_inet_sock_set_state")
-        .ok_or("missing handle_inet_sock_set_state program")?
-        .try_into()?;
-    tp.load()?;
-    tp.attach("sock", "inet_sock_set_state")?;
-
-    // Best-effort attach for UDP cgroup hook if root cgroup v2 is accessible.
-    if let Ok(cgroup_file) = std::fs::File::open("/sys/fs/cgroup")
-        && let Some(prog) = ebpf.program_mut("handle_udp_sendmsg4")
-        && let Ok(cg) = <&mut CgroupSockAddr>::try_from(prog)
-        && cg.load().is_ok()
+    // 1. Try tracepoint sock/inet_sock_set_state when tracefs is accessible.
+    if let Some(prog) = ebpf.program_mut("handle_inet_sock_set_state")
+        && let Ok(tp) = <&mut TracePoint>::try_from(prog)
     {
-        let _ = cg.attach(cgroup_file, CgroupAttachMode::Single);
+        match tp
+            .load()
+            .and_then(|()| tp.attach("sock", "inet_sock_set_state"))
+        {
+            Ok(_) => attached_any = true,
+            Err(err) => last_err = err.to_string(),
+        }
+    }
+
+    // 2. Try cgroup v2 socket hooks (connect4, connect6, sendmsg4), which do not require tracefs.
+    if let Ok(cgroup_file) = std::fs::File::open("/sys/fs/cgroup") {
+        for hook_name in [
+            "handle_tcp_connect4",
+            "handle_tcp_connect6",
+            "handle_udp_sendmsg4",
+        ] {
+            if let Ok(cg_dup) = cgroup_file.try_clone()
+                && let Some(prog) = ebpf.program_mut(hook_name)
+                && let Ok(cg) = <&mut CgroupSockAddr>::try_from(prog)
+            {
+                match cg
+                    .load()
+                    .and_then(|()| cg.attach(cg_dup, CgroupAttachMode::Single))
+                {
+                    Ok(_) => attached_any = true,
+                    Err(err) => last_err = err.to_string(),
+                }
+            }
+        }
+    }
+
+    if !attached_any {
+        return Err(last_err.into());
     }
 
     let mut ring_buf = RingBuf::try_from(

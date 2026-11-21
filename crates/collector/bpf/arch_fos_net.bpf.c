@@ -85,6 +85,62 @@ int handle_inet_sock_set_state(struct trace_event_raw_inet_sock_set_state *ctx)
     return 0;
 }
 
+// TCP outbound connect capture via cgroup/connect4 (does not require tracefs)
+SEC("cgroup/connect4")
+int handle_tcp_connect4(struct bpf_sock_addr *ctx)
+{
+    if (!ctx)
+        return 1;
+
+    struct flow_event *ev = bpf_ringbuf_reserve(&FLOW_EVENTS, sizeof(*ev), 0);
+    if (!ev)
+        return 1;
+
+    __u64 pid_tgid = bpf_get_current_pid_tgid();
+    ev->pid = (__u32)(pid_tgid >> 32);
+    ev->uid = (__u32)bpf_get_current_uid_gid();
+    ev->family = AF_INET;
+    ev->protocol = ctx->protocol ? (__u16)ctx->protocol : IPPROTO_TCP;
+    ev->sport = 0;
+    ev->dport = __builtin_bswap16((__u16)(ctx->user_port & 0xffff));
+    bpf_get_current_comm(&ev->comm, sizeof(ev->comm));
+
+    __builtin_memset(ev->saddr, 0, sizeof(ev->saddr));
+    __builtin_memset(ev->daddr, 0, sizeof(ev->daddr));
+    __u32 daddr = ctx->user_ip4;
+    __builtin_memcpy(ev->daddr, &daddr, 4);
+
+    bpf_ringbuf_submit(ev, 0);
+    return 1;
+}
+
+// TCP/UDP outbound connect capture via cgroup/connect6 (does not require tracefs)
+SEC("cgroup/connect6")
+int handle_tcp_connect6(struct bpf_sock_addr *ctx)
+{
+    if (!ctx)
+        return 1;
+
+    struct flow_event *ev = bpf_ringbuf_reserve(&FLOW_EVENTS, sizeof(*ev), 0);
+    if (!ev)
+        return 1;
+
+    __u64 pid_tgid = bpf_get_current_pid_tgid();
+    ev->pid = (__u32)(pid_tgid >> 32);
+    ev->uid = (__u32)bpf_get_current_uid_gid();
+    ev->family = AF_INET6;
+    ev->protocol = ctx->protocol ? (__u16)ctx->protocol : IPPROTO_TCP;
+    ev->sport = 0;
+    ev->dport = __builtin_bswap16((__u16)(ctx->user_port & 0xffff));
+    bpf_get_current_comm(&ev->comm, sizeof(ev->comm));
+
+    __builtin_memset(ev->saddr, 0, sizeof(ev->saddr));
+    __builtin_memcpy(ev->daddr, ctx->user_ip6, 16);
+
+    bpf_ringbuf_submit(ev, 0);
+    return 1;
+}
+
 // UDP outbound capture via cgroup/sendmsg4 (attached when cgroup v2 is available)
 SEC("cgroup/sendmsg4")
 int handle_udp_sendmsg4(struct bpf_sock_addr *ctx)

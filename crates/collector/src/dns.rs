@@ -323,9 +323,9 @@ pub async fn run_dns_analysis_once(pool: &SqlitePool, now_ms: i64) -> Result<usi
 pub fn spawn_dns_capture(pool: SqlitePool) -> Option<tokio::task::JoinHandle<()>> {
     use std::os::fd::FromRawFd;
 
-    let eth_p_ip = u16::to_be(0x0800);
+    let eth_p_all = u16::to_be(0x0003);
     // SAFETY: Standard POSIX socket creation; descriptor wrapped immediately in OwnedFd if valid.
-    let raw_fd = unsafe { libc::socket(libc::AF_PACKET, libc::SOCK_RAW, i32::from(eth_p_ip)) };
+    let raw_fd = unsafe { libc::socket(libc::AF_PACKET, libc::SOCK_RAW, i32::from(eth_p_all)) };
     if raw_fd < 0 {
         let err = std::io::Error::last_os_error();
         warn!(error = %err, "AF_PACKET DNS capture unavailable (requires CAP_NET_RAW); skipping live DNS sniffing");
@@ -388,15 +388,26 @@ fn extract_udp_53_payload(eth_frame: &[u8]) -> Option<&[u8]> {
         return None;
     }
     let ethertype = u16::from_be_bytes([eth_frame[12], eth_frame[13]]);
-    if ethertype != 0x0800 {
-        return None;
-    }
-    let ip = &eth_frame[14..];
-    let ihl = usize::from(ip[0] & 0x0f) * 4;
-    if ihl < 20 || ip.len() < ihl + 8 || ip[9] != 17 {
-        return None;
-    }
-    let udp = &ip[ihl..];
+    let udp = match ethertype {
+        // IPv4
+        0x0800 => {
+            let ip = &eth_frame[14..];
+            let ihl = usize::from(ip[0] & 0x0f) * 4;
+            if ihl < 20 || ip.len() < ihl + 8 || ip[9] != 17 {
+                return None;
+            }
+            &ip[ihl..]
+        }
+        // IPv6 (fixed 40-byte header, next_header at byte 6 == 17 UDP)
+        0x86dd => {
+            let ip6 = &eth_frame[14..];
+            if ip6.len() < 40 + 8 || ip6[6] != 17 {
+                return None;
+            }
+            &ip6[40..]
+        }
+        _ => return None,
+    };
     let sport = u16::from_be_bytes([udp[0], udp[1]]);
     let dport = u16::from_be_bytes([udp[2], udp[3]]);
     if sport != 53 && dport != 53 {
@@ -425,6 +436,17 @@ mod tests {
         assert_eq!(qname, "example.com");
         assert_eq!(qtype, "A");
         assert_eq!(rcode, 3);
+
+        // Also verify IPv6 Ethernet frame (0x86DD) extraction for UDP/53
+        let mut frame = vec![0u8; 14 + 40 + 8];
+        frame[12] = 0x86;
+        frame[13] = 0xdd;
+        frame[14 + 6] = 17; // Next Header = UDP
+        frame[14 + 40 + 2] = 0x00;
+        frame[14 + 40 + 3] = 53; // dport = 53
+        frame.extend_from_slice(pkt);
+        let extracted = extract_udp_53_payload(&frame).unwrap();
+        assert_eq!(extracted, pkt);
     }
 
     #[test]

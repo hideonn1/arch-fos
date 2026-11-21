@@ -385,10 +385,58 @@ pub fn detect_new_listeners(
     (events, findings)
 }
 
-/// Builds an executable-path-to-package lookup map from the stored `packages` table.
-pub async fn load_exe_package_index(
-    pool: &SqlitePool,
-) -> Result<HashMap<String, String>, sqlx::Error> {
+type PackageFileCacheKey = (i64, i64, i64, i64);
+type PackageFileMap = std::sync::Arc<HashMap<String, String>>;
+
+static PACKAGE_FILE_CACHE: std::sync::OnceLock<
+    tokio::sync::RwLock<Option<(PackageFileCacheKey, PackageFileMap)>>,
+> = std::sync::OnceLock::new();
+
+fn is_indexable_package_file(path: &str) -> bool {
+    if path.ends_with('/') {
+        return false;
+    }
+    if path.starts_with("usr/share/")
+        || path.starts_with("usr/include/")
+        || path.starts_with("usr/src/")
+        || path.ends_with(".pyc")
+        || path.ends_with(".h")
+        || path.ends_with(".a")
+        || path.ends_with(".o")
+        || path.ends_with(".rlib")
+        || path.ends_with(".html")
+        || path.ends_with(".gz")
+    {
+        return false;
+    }
+    path.starts_with("etc/")
+        || path.starts_with("usr/bin/")
+        || path.starts_with("usr/sbin/")
+        || path.starts_with("usr/local/")
+        || path.starts_with("usr/lib/")
+        || path.starts_with("opt/")
+        || path.starts_with("var/spool/cron/")
+        || path.contains("/bin/")
+        || path.contains("/sbin/")
+}
+
+/// Builds or returns a cached file-path-to-package lookup map from the stored `packages` table.
+/// Avoids deserializing hundreds of thousands of JSON file paths multiple times per minute.
+pub async fn load_exe_package_index(pool: &SqlitePool) -> Result<PackageFileMap, sqlx::Error> {
+    let key: PackageFileCacheKey = sqlx::query_as(
+        "SELECT COUNT(*), COALESCE(SUM(install_date), 0), COALESCE(MAX(first_seen_at), 0), COALESCE(MIN(first_seen_at), 0) FROM packages",
+    )
+    .fetch_one(pool)
+    .await?;
+
+    let lock = PACKAGE_FILE_CACHE.get_or_init(|| tokio::sync::RwLock::new(None));
+    if key.0 > 0
+        && let Some((cached_key, cached_map)) = lock.read().await.as_ref()
+        && *cached_key == key
+    {
+        return Ok(std::sync::Arc::clone(cached_map));
+    }
+
     let rows: Vec<(String, String)> = sqlx::query_as("SELECT name, files FROM packages")
         .fetch_all(pool)
         .await?;
@@ -396,13 +444,18 @@ pub async fn load_exe_package_index(
     for (pkg_name, files_json) in rows {
         if let Ok(files) = serde_json::from_str::<Vec<String>>(&files_json) {
             for f in files {
-                if f.contains("/bin/") || f.contains("/sbin/") || f.starts_with("usr/lib/") {
+                if is_indexable_package_file(&f) {
                     index.entry(f).or_insert_with(|| pkg_name.clone());
                 }
             }
         }
     }
-    Ok(index)
+
+    let arc_map = std::sync::Arc::new(index);
+    if key.0 > 0 {
+        *lock.write().await = Some((key, std::sync::Arc::clone(&arc_map)));
+    }
+    Ok(arc_map)
 }
 
 /// Runs one `sock_diag` listener snapshot, attributing processes/packages and emitting diffs.
