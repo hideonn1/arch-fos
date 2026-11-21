@@ -332,16 +332,62 @@ fn check_command(
         }
     }
 
+    if is_shell_binary(base) || matches!(base, "eval" | "source" | ".") {
+        let joined = args.join(" ");
+        if joined.contains("curl ") || joined.contains("$(curl") || joined.contains("<(curl") {
+            findings.push(StaticFinding {
+                rule_id: "pkgbuild_curl_pipe_sh".to_string(),
+                file: file.to_string(),
+                line: line_of(node),
+                severity: Severity::Critical,
+                snippet: snippet_of(node, source),
+                message: "Remote script downloaded via curl and executed in shell/subshell"
+                    .to_string(),
+            });
+        }
+        if joined.contains("wget ") || joined.contains("$(wget") || joined.contains("<(wget") {
+            findings.push(StaticFinding {
+                rule_id: "pkgbuild_wget_pipe_sh".to_string(),
+                file: file.to_string(),
+                line: line_of(node),
+                severity: Severity::Critical,
+                snippet: snippet_of(node, source),
+                message: "Remote script downloaded via wget and executed in shell/subshell"
+                    .to_string(),
+            });
+        }
+    }
+
     if kind == ScriptKind::Pkgbuild
         && matches!(
             base,
-            "cp" | "mv" | "install" | "tee" | "mkdir" | "rm" | "chmod" | "chown"
+            "cp" | "mv"
+                | "install"
+                | "tee"
+                | "mkdir"
+                | "rm"
+                | "chmod"
+                | "chown"
+                | "ln"
+                | "touch"
+                | "truncate"
+                | "curl"
+                | "wget"
         )
     {
-        // Flag writes targeting system/user paths outside $pkgdir / $srcdir.
-        if let Some(target) = args.last()
-            && is_suspicious_external_path(target)
-        {
+        // Flag writes targeting system/user paths outside $pkgdir / $srcdir across all arguments.
+        let mut target_candidates = args.iter().copied();
+        let suspicious = if matches!(base, "cp" | "mv" | "install" | "ln") {
+            // For multi-path commands (source -> destination), the destination is the last non-flag argument.
+            args.iter()
+                .rev()
+                .copied()
+                .find(|a| !a.starts_with('-'))
+                .filter(|t| is_suspicious_external_path(t))
+        } else {
+            target_candidates.find(|a| !a.starts_with('-') && is_suspicious_external_path(a))
+        };
+        if let Some(target) = suspicious {
             findings.push(StaticFinding {
                 rule_id: "pkgbuild_write_outside_pkgdir".to_string(),
                 file: file.to_string(),

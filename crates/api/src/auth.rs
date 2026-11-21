@@ -20,6 +20,7 @@ use tokio::sync::RwLock;
 pub const SESSION_COOKIE_NAME: &str = "arch_fos_session";
 pub const CSRF_HEADER_NAME: &str = "x-csrf-token";
 const SESSION_TTL: Duration = Duration::from_secs(24 * 60 * 60);
+const MAX_ACTIVE_SESSIONS: usize = 32;
 
 const CSP_HEADER_VALUE: &str = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'";
 
@@ -61,9 +62,20 @@ impl AuthState {
         };
 
         let mut guard = self.sessions.write().await;
-        // Prune expired sessions opportunistically to bound memory.
+        // Prune expired sessions and cap active sessions to MAX_ACTIVE_SESSIONS to prevent memory DoS.
         let now = Instant::now();
         guard.retain(|_, v| v.expires_at > now);
+        while guard.len() >= MAX_ACTIVE_SESSIONS {
+            if let Some(oldest_key) = guard
+                .iter()
+                .min_by_key(|(_, v)| v.expires_at)
+                .map(|(k, _)| k.clone())
+            {
+                guard.remove(&oldest_key);
+            } else {
+                break;
+            }
+        }
         guard.insert(session_id.clone(), record);
 
         (session_id, csrf_token)

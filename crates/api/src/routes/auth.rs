@@ -65,6 +65,8 @@ pub async fn auth_login(
         .map_err(|_| ApiError::bad_request("invalid JSON login payload"))?;
 
     if !state.auth.verify_api_token(&payload.token) {
+        // Throttle failed authentication attempts to mitigate local brute-force loops.
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
         return Err(ApiError::unauthorized("invalid local authentication token"));
     }
 

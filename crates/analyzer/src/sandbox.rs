@@ -94,15 +94,24 @@ pub fn build_sandbox_command_args(
                 "/proc".into(),
                 "--tmpfs".into(),
                 "/tmp".into(),
+                "--tmpfs".into(),
+                "/home".into(),
+                "--tmpfs".into(),
+                "/root".into(),
+                "--setenv".into(),
+                "HOME".into(),
+                "/tmp".into(),
                 "--bind".into(),
                 dir_str,
                 "/build".into(),
                 "--chdir".into(),
                 "/build".into(),
                 "--unshare-net".into(),
+                "--unshare-pid".into(),
+                "--unshare-ipc".into(),
+                "--unshare-uts".into(),
                 "--die-with-parent".into(),
                 "makepkg".into(),
-                "--noextract".into(),
                 "--nodeps".into(),
                 "--force".into(),
                 "--noconfirm".into(),
@@ -117,7 +126,6 @@ pub fn build_sandbox_command_args(
                 format!("--bind={dir_str}:/build"),
                 "--chdir=/build".into(),
                 "makepkg".into(),
-                "--noextract".into(),
                 "--nodeps".into(),
                 "--force".into(),
                 "--noconfirm".into(),
@@ -126,8 +134,8 @@ pub fn build_sandbox_command_args(
     }
 }
 
-/// Executes a two-phase sandboxed build (download sources -> network-isolated build) and scans
-/// resulting `.pkg.tar.*` artifacts for `.INSTALL` scriptlets, YARA/ClamAV, SBOM, and CVEs.
+/// Executes a two-phase sandboxed build (download/verify sources -> network-isolated extract+prepare+build)
+/// and scans resulting `.pkg.tar.*` artifacts for `.INSTALL` scriptlets, YARA/ClamAV, SBOM, and CVEs.
 pub fn sandbox_build_and_scan(
     pkgbuild_dir: &Path,
     opts: &SandboxBuildOptions,
@@ -136,11 +144,11 @@ pub fn sandbox_build_and_scan(
         .canonicalize()
         .map_err(|err| AnalyzerError::Io(pkgbuild_dir.display().to_string(), err))?;
 
-    // Phase 1: Download & extract sources before cutting off network
+    // Phase 1: Only download & verify source checksums (--verifysource never extracts or runs prepare())
     if !opts.skip_download {
         let dl = Command::new("makepkg")
             .current_dir(&abs_dir)
-            .args(["--nobuild", "--nodeps", "--noconfirm"])
+            .args(["--verifysource", "--nodeps", "--noconfirm"])
             .output()
             .map_err(|err| AnalyzerError::Io("makepkg".into(), err))?;
         if !dl.status.success() {

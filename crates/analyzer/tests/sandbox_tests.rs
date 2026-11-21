@@ -12,11 +12,14 @@ fn sandbox_commands_enforce_network_isolation() {
         build_sandbox_command_args(SandboxBackend::Bwrap, Path::new("/tmp/pkg"));
     assert_eq!(prog_bwrap, "bwrap");
     assert!(args_bwrap.contains(&"--unshare-net".to_string()));
+    assert!(args_bwrap.contains(&"--unshare-pid".to_string()));
+    assert!(!args_bwrap.contains(&"--noextract".to_string()));
 
     let (prog_nspawn, args_nspawn) =
         build_sandbox_command_args(SandboxBackend::SystemdNspawn, Path::new("/tmp/pkg"));
     assert_eq!(prog_nspawn, "systemd-nspawn");
     assert!(args_nspawn.contains(&"--private-network".to_string()));
+    assert!(!args_nspawn.contains(&"--noextract".to_string()));
 }
 
 #[test]
