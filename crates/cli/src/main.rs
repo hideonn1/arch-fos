@@ -2,12 +2,16 @@ use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::str::FromStr;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use arch_fos_analyzer::{AnalyzerConfig, analyze_file, diff_aur_git_repo};
+use arch_fos_analyzer::{
+    AnalyzerConfig, SandboxBackend, SandboxBuildOptions, analyze_file, diff_aur_git_repo,
+    sandbox_build_and_scan,
+};
 use arch_fos_common::{CollectorCommand, CollectorResponse, Severity};
 use clap::{Parser, Subcommand, ValueEnum};
 use serde_json::json;
-use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
+use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixStream;
 
@@ -15,7 +19,7 @@ use tokio::net::UnixStream;
 #[command(
     name = "arch-fos",
     version,
-    about = "CLI & pacman hook for Arch Forward Observations System"
+    about = "CLI, sandbox builder, wiki indexer & pacman hook for Arch Forward Observations System"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -43,6 +47,55 @@ enum Commands {
         to: String,
         #[arg(long, default_value_t = false)]
         json: bool,
+    },
+    /// Build a PKGBUILD inside a network-isolated sandbox and scan artifacts (US-15).
+    SandboxBuild {
+        /// Directory containing the PKGBUILD to build.
+        pkgbuild_dir: PathBuf,
+        /// Sandbox isolation backend (`bwrap` or `nspawn`).
+        #[arg(long, value_enum, default_value_t = CliSandboxBackend::Bwrap)]
+        backend: CliSandboxBackend,
+        /// Skip initial `makepkg --nobuild` source download step.
+        #[arg(long, default_value_t = false)]
+        skip_download: bool,
+        /// Optional YARA rules file or directory to scan built artifacts.
+        #[arg(long)]
+        yara_rules: Option<PathBuf>,
+        /// Output full report as JSON.
+        #[arg(long, default_value_t = false)]
+        json: bool,
+    },
+    /// Index offline Arch Wiki documentation (HTML/Markdown/text) into SQLite RAG store (US-27).
+    IndexWiki {
+        /// Directory containing offline Arch Wiki files (e.g. /usr/share/doc/arch-wiki/html/en).
+        docs_dir: PathBuf,
+        /// Path to the writable Arch FOS SQLite database.
+        #[arg(
+            long,
+            env = "ARCH_FOS_DB_PATH",
+            default_value = "/var/lib/arch-fos/arch-fos.db"
+        )]
+        db_path: PathBuf,
+        /// Generate dense vector embeddings via local Ollama `/api/embed`.
+        #[arg(long, default_value_t = false)]
+        embed: bool,
+        /// Local Ollama URL for embeddings.
+        #[arg(
+            long,
+            env = "ARCH_FOS_OLLAMA_URL",
+            default_value = "http://127.0.0.1:11434"
+        )]
+        ollama_url: String,
+        /// Ollama embedding model name.
+        #[arg(
+            long,
+            env = "ARCH_FOS_OLLAMA_EMBED_MODEL",
+            default_value = "nomic-embed-text"
+        )]
+        embed_model: String,
+        /// Maximum number of document files to index (0 = unlimited).
+        #[arg(long, default_value_t = 500)]
+        max_files: usize,
     },
     /// ALPM PreTransaction hook entrypoint (US-14).
     Hook {
@@ -73,6 +126,21 @@ enum Commands {
         #[arg(long, env = "ARCH_FOS_PKGBUILDS_DIR")]
         pkgbuilds_dir: Option<PathBuf>,
     },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+enum CliSandboxBackend {
+    Bwrap,
+    Nspawn,
+}
+
+impl From<CliSandboxBackend> for SandboxBackend {
+    fn from(val: CliSandboxBackend) -> Self {
+        match val {
+            CliSandboxBackend::Bwrap => Self::Bwrap,
+            CliSandboxBackend::Nspawn => Self::SystemdNspawn,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
@@ -155,6 +223,77 @@ async fn run(cli: Cli) -> Result<ExitCode, Box<dyn std::error::Error>> {
                     );
                 }
             }
+            Ok(ExitCode::SUCCESS)
+        }
+        Commands::SandboxBuild {
+            pkgbuild_dir,
+            backend,
+            skip_download,
+            yara_rules,
+            json,
+        } => {
+            let opts = SandboxBuildOptions {
+                backend: backend.into(),
+                skip_download,
+                yara_rules,
+            };
+            let report = sandbox_build_and_scan(&pkgbuild_dir, &opts)?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                println!(
+                    "Sandbox build ({:?}, network isolated: {}): {}",
+                    report.backend,
+                    report.network_isolated_during_build,
+                    if report.build_succeeded {
+                        "OK"
+                    } else {
+                        "FAILED"
+                    }
+                );
+                for art in &report.artifacts {
+                    println!(
+                        "  Artifact: {} ({} files, .INSTALL: {}, findings: {})",
+                        art.artifact_path,
+                        art.files_count,
+                        art.install_script_present,
+                        art.install_script_findings.len()
+                    );
+                }
+                for scan in &report.scanner_results {
+                    println!(
+                        "  Scanner {}: {} (findings: {})",
+                        scan.tool, scan.status, scan.findings_count
+                    );
+                }
+            }
+            if report.build_succeeded {
+                Ok(ExitCode::SUCCESS)
+            } else {
+                Ok(ExitCode::from(1))
+            }
+        }
+        Commands::IndexWiki {
+            docs_dir,
+            db_path,
+            embed,
+            ollama_url,
+            embed_model,
+            max_files,
+        } => {
+            let count = index_arch_wiki_dir(
+                &docs_dir,
+                &db_path,
+                embed,
+                &ollama_url,
+                &embed_model,
+                max_files,
+            )
+            .await?;
+            println!(
+                "Indexed {count} Arch Wiki chunk(s) into {}",
+                db_path.display()
+            );
             Ok(ExitCode::SUCCESS)
         }
         Commands::Hook {
@@ -276,6 +415,172 @@ async fn run(cli: Cli) -> Result<ExitCode, Box<dyn std::error::Error>> {
             Ok(ExitCode::SUCCESS)
         }
     }
+}
+
+async fn index_arch_wiki_dir(
+    docs_dir: &Path,
+    db_path: &Path,
+    embed: bool,
+    ollama_url: &str,
+    embed_model: &str,
+    max_files: usize,
+) -> Result<usize, Box<dyn std::error::Error>> {
+    if !docs_dir.is_dir() {
+        return Err(format!("docs directory not found: {}", docs_dir.display()).into());
+    }
+
+    let dsn = format!("sqlite://{}", db_path.display());
+    let opts = SqliteConnectOptions::from_str(&dsn)?
+        .create_if_missing(true)
+        .journal_mode(SqliteJournalMode::Wal);
+    let pool = SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect_with(opts)
+        .await?;
+    sqlx::migrate!("../../migrations").run(&pool).await?;
+
+    let mut files = Vec::new();
+    collect_doc_files(docs_dir, &mut files);
+    files.sort();
+    if max_files > 0 && files.len() > max_files {
+        files.truncate(max_files);
+    }
+
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(10))
+        .build()?;
+    let now_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX))
+        .unwrap_or(0);
+
+    let mut total_chunks = 0usize;
+    let mut tx = pool.begin().await?;
+    sqlx::query("DELETE FROM wiki_chunks")
+        .execute(&mut *tx)
+        .await?;
+
+    for file in files {
+        let Ok(raw) = std::fs::read_to_string(&file) else {
+            continue;
+        };
+        let stem = file
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("Arch_Wiki");
+        let title = stem.replace('_', " ");
+        let url = format!("https://wiki.archlinux.org/title/{stem}");
+        let plain = if file.extension().and_then(|e| e.to_str()) == Some("html") {
+            strip_html_tags(&raw)
+        } else {
+            raw
+        };
+
+        for (idx, chunk) in split_chunks(&plain, 800).into_iter().enumerate() {
+            let emb_blob: Option<Vec<u8>> = if embed {
+                fetch_embedding(&client, ollama_url, embed_model, &chunk).await
+            } else {
+                None
+            };
+            sqlx::query(
+                "INSERT INTO wiki_chunks (title, url, section, content, embedding, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+            )
+            .bind(&title)
+            .bind(&url)
+            .bind(format!("section-{}", idx + 1))
+            .bind(&chunk)
+            .bind(emb_blob)
+            .bind(now_ms)
+            .execute(&mut *tx)
+            .await?;
+            total_chunks += 1;
+        }
+    }
+
+    tx.commit().await?;
+    Ok(total_chunks)
+}
+
+fn collect_doc_files(dir: &Path, out: &mut Vec<PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            collect_doc_files(&path, out);
+        } else if let Some(ext) = path.extension().and_then(|e| e.to_str())
+            && matches!(ext, "html" | "md" | "txt")
+        {
+            out.push(path);
+        }
+    }
+}
+
+fn strip_html_tags(input: &str) -> String {
+    let mut out = String::with_capacity(input.len() / 2);
+    let mut in_tag = false;
+    for ch in input.chars() {
+        match ch {
+            '<' => in_tag = true,
+            '>' => {
+                in_tag = false;
+                out.push(' ');
+            }
+            _ if !in_tag => out.push(ch),
+            _ => {}
+        }
+    }
+    out.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+fn split_chunks(text: &str, max_chars: usize) -> Vec<String> {
+    let mut chunks = Vec::new();
+    let mut cur = String::new();
+    for word in text.split_whitespace() {
+        if !cur.is_empty() && cur.len() + word.len() + 1 > max_chars {
+            chunks.push(std::mem::take(&mut cur));
+        }
+        if !cur.is_empty() {
+            cur.push(' ');
+        }
+        cur.push_str(word);
+    }
+    if cur.len() >= 40 {
+        chunks.push(cur);
+    }
+    chunks
+}
+
+async fn fetch_embedding(
+    client: &reqwest::Client,
+    ollama_url: &str,
+    model: &str,
+    text: &str,
+) -> Option<Vec<u8>> {
+    #[derive(serde::Deserialize)]
+    struct EmbedResp {
+        #[serde(default)]
+        embeddings: Vec<Vec<f32>>,
+    }
+
+    let url = format!("{}/api/embed", ollama_url.trim_end_matches('/'));
+    let resp = client
+        .post(&url)
+        .json(&json!({ "model": model, "input": text }))
+        .send()
+        .await
+        .ok()?;
+    if !resp.status().is_success() {
+        return None;
+    }
+    let parsed: EmbedResp = resp.json().await.ok()?;
+    let vec = parsed.embeddings.into_iter().next()?;
+    let mut bytes = Vec::with_capacity(vec.len() * 4);
+    for v in vec {
+        bytes.extend_from_slice(&v.to_le_bytes());
+    }
+    Some(bytes)
 }
 
 async fn query_db_findings_for_targets(

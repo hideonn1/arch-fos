@@ -12,6 +12,7 @@ path = "src/main.rs"
 arch-fos-analyzer = { path = "../analyzer" }
 arch-fos-common = { path = "../common" }
 clap.workspace = true
+reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sqlx.workspace = true
